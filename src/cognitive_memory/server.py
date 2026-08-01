@@ -95,6 +95,7 @@ def _error(message: str) -> str:
 
 # === Tool Definitions ===
 
+
 @mcp.tool()
 async def memory_store(
     content: str,
@@ -109,8 +110,12 @@ async def memory_store(
     engine = _get_engine()
     try:
         mem = await engine.store_memory(
-            content=content, memory_type=type, importance=importance,
-            tags=tags, source=source, conversation_id=conversation_id,
+            content=content,
+            memory_type=type,
+            importance=importance,
+            tags=tags,
+            source=source,
+            conversation_id=conversation_id,
         )
         return _response(mem.model_dump(), (time.time() - start) * 1000)
     except Exception as e:
@@ -136,8 +141,11 @@ async def memory_recall(
                 datetime.fromisoformat(time_range["end"]),
             )
         results = await engine.recall(
-            query=query, type_filter=type_filter, tags=tags,
-            time_range=tr, limit=limit,
+            query=query,
+            type_filter=type_filter,
+            tags=tags,
+            time_range=tr,
+            limit=limit,
         )
         return _response(
             {"memories": [r.model_dump() for r in results]},
@@ -174,8 +182,11 @@ async def memory_update(
     engine = _get_engine()
     try:
         mem = await engine.update_memory(
-            memory_id=id, content=content, memory_type=type,
-            importance=importance, tags=tags,
+            memory_id=id,
+            content=content,
+            memory_type=type,
+            importance=importance,
+            tags=tags,
         )
         if mem is None:
             return _error(f"Memory {id} not found")
@@ -252,9 +263,15 @@ async def memory_list(
                 datetime.fromisoformat(time_range["end"]),
             )
         memories = await engine.storage.list_memories(
-            search=search, memory_type=type, state=state, tags=tags,
-            time_range=tr, importance_min=importance_min,
-            importance_max=importance_max, limit=limit, offset=offset,
+            search=search,
+            memory_type=type,
+            state=state,
+            tags=tags,
+            time_range=tr,
+            importance_min=importance_min,
+            importance_max=importance_max,
+            limit=limit,
+            offset=offset,
         )
         return _response(
             {"memories": [m.model_dump() for m in memories]},
@@ -276,7 +293,9 @@ async def memory_archive(
     try:
         if id:
             success = await engine.archive_memory(id)
-            return _response({"archived": 1 if success else 0}, (time.time() - start) * 1000)
+            return _response(
+                {"archived": 1 if success else 0}, (time.time() - start) * 1000
+            )
         elif ids:
             count = await engine.archive_bulk(ids)
             return _response({"archived": count}, (time.time() - start) * 1000)
@@ -299,7 +318,9 @@ async def memory_restore(
     try:
         if id:
             mem = await engine.restore_memory(id)
-            return _response(mem.model_dump() if mem else None, (time.time() - start) * 1000)
+            return _response(
+                mem.model_dump() if mem else None, (time.time() - start) * 1000
+            )
         elif ids:
             results = []
             for mid in ids:
@@ -326,7 +347,9 @@ async def memory_delete(
             return _error("confirm must be true for permanent deletion")
         if id:
             success = await engine.delete_memory(id)
-            return _response({"deleted": 1 if success else 0}, (time.time() - start) * 1000)
+            return _response(
+                {"deleted": 1 if success else 0}, (time.time() - start) * 1000
+            )
         elif ids:
             count = 0
             for mid in ids:
@@ -357,7 +380,9 @@ async def memory_consolidate(dry_run: bool = False) -> str:
     engine = _get_engine()
     try:
         actions = await engine.consolidate(dry_run=dry_run)
-        return _response({"actions": actions, "count": len(actions)}, (time.time() - start) * 1000)
+        return _response(
+            {"actions": actions, "count": len(actions)}, (time.time() - start) * 1000
+        )
     except Exception as e:
         return _error(str(e))
 
@@ -377,7 +402,9 @@ async def memory_self(
     engine = _get_engine()
     try:
         results = await engine.recall(
-            query=query, type_filter="identity", tags=tags,
+            query=query,
+            type_filter="identity",
+            tags=tags,
         )
         return _response(
             {"memories": [r.model_dump() for r in results]},
@@ -419,13 +446,16 @@ async def memory_who(
 
         # Primary: person-typed memories with person tag
         results = await engine.recall(
-            query=effective_query, type_filter="person", tags=combined_tags,
+            query=effective_query,
+            type_filter="person",
+            tags=combined_tags,
         )
 
         # W2 fallback: if no person-typed results, try without type filter
         if not results:
             results = await engine.recall(
-                query=effective_query, tags=combined_tags,
+                query=effective_query,
+                tags=combined_tags,
             )
 
         # W2 fallback: if still empty, try with just the person name as query
@@ -474,7 +504,9 @@ async def memory_health() -> str:
             most_recent_dt: datetime | None = None
             for manifest_path in backups_root.glob("*/manifest.json"):
                 try:
-                    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest_data = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
                     ts_str = manifest_data.get("created_at", "")
                     dt = datetime.fromisoformat(ts_str)
                     if dt.tzinfo is None:
@@ -510,7 +542,10 @@ async def memory_config(
     try:
         if key and value is not None:
             engine.set_config(key, value)
-            return _response({"key": key, "value": value, "action": "set"}, (time.time() - start) * 1000)
+            return _response(
+                {"key": key, "value": value, "action": "set"},
+                (time.time() - start) * 1000,
+            )
         elif key:
             result = engine.get_config(key)
             return _response(result, (time.time() - start) * 1000)
@@ -523,16 +558,33 @@ async def memory_config(
 
 # === Server Entry Points ===
 
+
 def get_app():
     """Get the Starlette ASGI app for uvicorn."""
     return mcp.streamable_http_app()
 
 
 def main() -> None:
-    """CLI entrypoint — run the HTTP MCP server."""
-    import logging
+    """CLI entrypoint — run the MCP server (HTTP or stdio)."""
+    import argparse
     import uvicorn
 
+    parser = argparse.ArgumentParser(description="Synaptra MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=["http", "stdio"],
+        default="http",
+        help="Transport to use: 'http' (default, uvicorn/streamable-HTTP) or 'stdio' (per-session MCP over stdin/stdout)",
+    )
+    args = parser.parse_args()
+
+    if args.transport == "stdio":
+        # stdio mode: FastMCP speaks MCP protocol over stdin/stdout.
+        # Engine init is deferred to first tool call (lazy _get_engine).
+        mcp.run(transport="stdio")
+        return
+
+    # http mode (default) — existing behaviour, unchanged.
     # When running headless (pythonw.exe / Task Scheduler), redirect logs to file
     log_dir = Path.home() / ".synaptra"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -551,26 +603,32 @@ def main() -> None:
     # Eagerly load the embedding model — moves ~10 s cold-start out of first recall
     _engine_instance.embeddings.warmup()
 
-    uvicorn.run(get_app(), host=host, port=port, log_level="info", log_config={
-        "version": 1,
-        "disable_existing_loggers": False,
-        "handlers": {
-            "file": {
-                "class": "logging.FileHandler",
-                "filename": log_file,
-                "formatter": "default",
+    uvicorn.run(
+        get_app(),
+        host=host,
+        port=port,
+        log_level="info",
+        log_config={
+            "version": 1,
+            "disable_existing_loggers": False,
+            "handlers": {
+                "file": {
+                    "class": "logging.FileHandler",
+                    "filename": log_file,
+                    "formatter": "default",
+                },
+            },
+            "formatters": {
+                "default": {
+                    "fmt": "%(asctime)s [%(levelname)s] %(message)s",
+                },
+            },
+            "root": {
+                "level": "INFO",
+                "handlers": ["file"],
             },
         },
-        "formatters": {
-            "default": {
-                "fmt": "%(asctime)s [%(levelname)s] %(message)s",
-            },
-        },
-        "root": {
-            "level": "INFO",
-            "handlers": ["file"],
-        },
-    })
+    )
 
 
 if __name__ == "__main__":
