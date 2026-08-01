@@ -1,0 +1,97 @@
+# Decay Engine
+decay:
+  initial_stability:
+    working: 0.04
+    episodic: 2.0
+    semantic: 14.0
+    procedural: 60.0
+    identity: 365.0
+    person: 90.0
+  growth_factor: 2.0
+  decay_influence: 0.5
+  thresholds:
+    healthy: 0.5
+    fading: 0.2
+    forgotten: 0.2  # archive threshold
+
+# Retrieval
+retrieval:
+  weights:
+    semantic: 1.0
+    keyword: 0.7
+    temporal: 0.3
+    graph: 0.5
+  rrf_k: 60
+  supersede_penalty: 0.3
+  default_limit: 10
+  phase1_candidate_multiplier: 3
+  phase1_candidate_cap: 30
+  phase2_seed_count: 5
+
+# Spreading Activation
+spreading_activation:
+  activation_strength: 0.3
+  spread_factor: 0.5
+  max_depth: 3
+  max_boost: 0.5
+
+# Auto-linking
+auto_linking:
+  similarity_threshold: 0.75
+  max_links: 5
+
+# Contradiction Detection
+contradiction:
+  similarity_threshold: 0.80
+  negation_signals:
+    - "not"
+    - "never"
+    - "no longer"
+    - "changed"
+    - "wrong"
+    - "actually"
+    - "incorrect"
+    - "false"
+
+# Consolidation
+consolidation:
+  cluster_threshold: 0.85
+  merge_threshold: 0.90
+  person_archive_threshold: 0.05
+  promotion:
+    working_to_episodic:
+      min_access_count: 3
+      min_importance: 0.4
+      min_relationships: 2
+    episodic_to_semantic:
+      min_access_count: 5
+      min_retrievability: 0.6
+    episodic_to_procedural:
+      min_access_count: 3
+      patterns:
+        - "how to"
+        - "steps"
+        - "workflow"
+        - "procedure"
+        - "when .+ do"
+        - "first .+ then"
+    to_person:
+      min_access_count: 3
+
+# Logging
+logging:
+  recall_timing: false
+
+# Importance Scoring
+importance:
+  base_score: 0.5
+  named_entity_bonus: 0.1
+  relational_bonus: 0.1
+  agent_marked_bonus: 0.1
+  length_bonus: 0.1
+  length_threshold: 200
+  working_penalty: 0.1
+  identity_bonus: 0.2
+  person_bonus: 0.15
+  min: 0.1
+  max: 1.0

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "synaptra"
+version = "1.0.0"
+description = "Biologically-inspired agent memory as an MCP server — decay, consolidation, and multi-strategy retrieval"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "mcp>=1.0.0",
+    "sentence-transformers>=3.0.0,<5.0",
+    "transformers>=4.45,<5",
+    "huggingface-hub>=0.34,<1.0",
+    "numpy>=1.26.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "surrealdb>=1.0.8",
+    "uvicorn>=0.28.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.0",
+    "hypothesis>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/kaushikhazra/synaptra"
+Repository = "https://github.com/kaushikhazra/synaptra"
+
+[project.scripts]
+synaptra = "cognitive_memory.server:main"
+synaptra-service = "cognitive_memory.service:handle_command_line"
+synaptra-cli = "cognitive_memory.cli:main"
+cm = "cognitive_memory.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cognitive_memory"]
