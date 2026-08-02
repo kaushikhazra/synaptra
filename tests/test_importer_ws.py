@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from cognitive_memory.backup.importer import import_backup, ImportError
+from synaptra.backup.importer import import_backup, ImportError
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ class TestParameterValidation:
         mock_db = MagicMock()
         mock_db.query.return_value = [{"cnt": 0}]
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             result = import_backup(
                 backup_dir,
                 target_dir=target_dir,
@@ -107,7 +107,7 @@ class TestWsForceGuard:
         backup_dir = _make_backup_dir(tmp_path)
         mock_db = _make_mock_db(existing_count=5)
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             with pytest.raises(ImportError, match="5 records") as exc_info:
                 import_backup(
                     backup_dir,
@@ -121,7 +121,7 @@ class TestWsForceGuard:
         backup_dir = _make_backup_dir(tmp_path)
         mock_db = _make_mock_db(existing_count=3)
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             with pytest.raises(ImportError) as exc_info:
                 import_backup(
                     backup_dir,
@@ -135,7 +135,7 @@ class TestWsForceGuard:
         backup_dir = _make_backup_dir(tmp_path, memory_count=0)
         mock_db = _make_mock_db(existing_count=0)
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             result = import_backup(
                 backup_dir,
                 target="ws",
@@ -149,8 +149,8 @@ class TestWsForceGuard:
         mock_db = _make_mock_db(existing_count=100)
 
         # Patch _post_restore_verify to return success; this test focuses on force guard only
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
-            with patch("cognitive_memory.backup.importer._post_restore_verify", return_value=0):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
+            with patch("synaptra.backup.importer._post_restore_verify", return_value=0):
                 result = import_backup(
                     backup_dir,
                     target="ws",
@@ -208,8 +208,8 @@ class TestWsImportOrdering:
             json.dumps(memory_ndjson) + "\n", encoding="utf-8"
         )
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
-            with patch("cognitive_memory.backup.importer._post_restore_verify", return_value=0):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
+            with patch("synaptra.backup.importer._post_restore_verify", return_value=0):
                 import_backup(
                     backup_dir,
                     target="ws",
@@ -232,7 +232,7 @@ class TestWsImportOrdering:
         backup_dir = _make_backup_dir(tmp_path)
         mock_db = _make_mock_db(existing_count=0)
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             result = import_backup(
                 backup_dir,
                 target="ws",
@@ -245,7 +245,7 @@ class TestWsImportOrdering:
         mock_db = MagicMock()
         mock_db.use.side_effect = ConnectionRefusedError("server down")
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             with pytest.raises(ImportError, match="Cannot connect"):
                 import_backup(
                     backup_dir,
@@ -261,7 +261,7 @@ class TestWsImportOrdering:
 class TestRestoreCliWsOptions:
     def test_ws_mode_requires_target_url(self, tmp_path):
         from click.testing import CliRunner
-        from cognitive_memory.backup.cli import backup_group
+        from synaptra.backup.cli import backup_group
 
         backup_dir = _make_backup_dir(tmp_path)
         runner = CliRunner()
@@ -276,12 +276,12 @@ class TestRestoreCliWsOptions:
 
     def test_ws_mode_passes_target_url_to_import_backup(self, tmp_path):
         from click.testing import CliRunner
-        from cognitive_memory.backup.cli import backup_group
+        from synaptra.backup.cli import backup_group
 
         backup_dir = _make_backup_dir(tmp_path)
         mock_db = _make_mock_db(existing_count=0)
 
-        with patch("cognitive_memory.backup.importer.Surreal", return_value=mock_db):
+        with patch("synaptra.backup.importer.Surreal", return_value=mock_db):
             runner = CliRunner()
             result = runner.invoke(backup_group, [
                 "restore",

@@ -38,12 +38,12 @@ class TestSchemaWriteBinary:
 
     def test_schema_bytes_identical_to_source(self, tmp_path: Path) -> None:
         """Bytes written to backup dir must be identical to source schema bytes."""
-        from cognitive_memory.backup.exporter import export_backup
-        from cognitive_memory.backup import exporter as exporter_mod
+        from synaptra.backup.exporter import export_backup
+        from synaptra.backup import exporter as exporter_mod
 
         # Locate the real schema
-        import cognitive_memory
-        schema_src = Path(cognitive_memory.__file__).parent / "schema.surql"
+        import synaptra
+        schema_src = Path(synaptra.__file__).parent / "schema.surql"
         assert schema_src.exists(), "schema.surql not found in package"
 
         source_bytes = schema_src.read_bytes()
@@ -65,11 +65,11 @@ class TestSchemaWriteBinary:
 
     def test_manifest_hash_uses_raw_bytes(self, tmp_path: Path) -> None:
         """manifest.json schema_hash must match sha256 of the raw bytes, not re-encoded text."""
-        from cognitive_memory.backup.exporter import export_backup
-        from cognitive_memory.backup import exporter as exporter_mod
+        from synaptra.backup.exporter import export_backup
+        from synaptra.backup import exporter as exporter_mod
 
-        import cognitive_memory
-        schema_src = Path(cognitive_memory.__file__).parent / "schema.surql"
+        import synaptra
+        schema_src = Path(synaptra.__file__).parent / "schema.surql"
         source_bytes = schema_src.read_bytes()
         expected_hash = hashlib.sha256(source_bytes).hexdigest()
 
@@ -89,11 +89,11 @@ class TestSchemaWriteBinary:
 
     def test_no_crlf_in_backup_when_source_has_lf_only(self, tmp_path: Path) -> None:
         """If the source schema has LF-only line endings, backup must also have LF-only."""
-        from cognitive_memory.backup import exporter as exporter_mod
-        from cognitive_memory.backup.exporter import export_backup
+        from synaptra.backup import exporter as exporter_mod
+        from synaptra.backup.exporter import export_backup
 
-        import cognitive_memory
-        schema_src = Path(cognitive_memory.__file__).parent / "schema.surql"
+        import synaptra
+        schema_src = Path(synaptra.__file__).parent / "schema.surql"
         source_bytes = schema_src.read_bytes()
 
         # Only run this assertion when source file has no CRLF

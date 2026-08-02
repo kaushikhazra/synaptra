@@ -54,7 +54,7 @@ def _install_task() -> bool:
 
     # PowerShell script: create task with logon trigger for current user + restart on failure
     ps_script = (
-        f"$action = New-ScheduledTaskAction -Execute '{python_exe}' -Argument '-m cognitive_memory.server'; "
+        f"$action = New-ScheduledTaskAction -Execute '{python_exe}' -Argument '-m synaptra.server'; "
         f"$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; "
         f"$settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) "
         f"-ExecutionTimeLimit 0 -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; "
@@ -89,7 +89,7 @@ def _install_startup_folder() -> bool:
         return False
 
     bat = startup / STARTUP_BAT
-    bat.write_text(f'@echo off\n"{sys.executable}" -m cognitive_memory.server\n')
+    bat.write_text(f'@echo off\n"{sys.executable}" -m synaptra.server\n')
     print(f"Installed startup script: {bat}")
     print(f"  Server will start at next login.")
     return True

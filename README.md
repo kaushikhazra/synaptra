@@ -126,7 +126,7 @@ No admin elevation or pywin32 required. Uses Task Scheduler with auto-restart on
 ## Architecture
 
 ```
-cognitive_memory/
+synaptra/
   server.py          Streamable HTTP MCP server (FastMCP + uvicorn)
   cli.py             CLI tool (click, connects via MCP client)
   service.py         Windows Task Scheduler service management

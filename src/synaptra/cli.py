@@ -728,7 +728,7 @@ def config(ctx, key, value):
 
 # --- Backup subgroup ---
 
-from cognitive_memory.backup.cli import backup_group  # noqa: E402
+from synaptra.backup.cli import backup_group  # noqa: E402
 cli.add_command(backup_group)
 
 

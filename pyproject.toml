@@ -34,10 +34,10 @@ Homepage = "https://github.com/kaushikhazra/synaptra"
 Repository = "https://github.com/kaushikhazra/synaptra"
 
 [project.scripts]
-synaptra = "cognitive_memory.server:main"
-synaptra-service = "cognitive_memory.service:handle_command_line"
-synaptra-cli = "cognitive_memory.cli:main"
-cm = "cognitive_memory.cli:main"
+synaptra = "synaptra.server:main"
+synaptra-service = "synaptra.service:handle_command_line"
+synaptra-cli = "synaptra.cli:main"
+cm = "synaptra.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cognitive_memory"]
+packages = ["src/synaptra"]

@@ -13,7 +13,7 @@ import pytest
 
 TEST_PORT = 52198  # Different from test_mcp_client to avoid conflicts
 TEST_URL = f"http://127.0.0.1:{TEST_PORT}/mcp"
-CLI_CMD = [sys.executable, "-m", "cognitive_memory.cli"]
+CLI_CMD = [sys.executable, "-m", "synaptra.cli"]
 
 
 def wait_for_server(url: str, timeout: float = 30.0) -> bool:

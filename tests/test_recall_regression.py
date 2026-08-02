@@ -19,10 +19,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cognitive_memory.embeddings import EmbeddingService
-from cognitive_memory.models import Memory, MemoryState, MemoryType, Relationship, RelType
-from cognitive_memory.retrieval import recall
-from cognitive_memory.surreal_storage import SurrealStorage
+from synaptra.embeddings import EmbeddingService
+from synaptra.models import Memory, MemoryState, MemoryType, Relationship, RelType
+from synaptra.retrieval import recall
+from synaptra.surreal_storage import SurrealStorage
 
 # ── Recording switch ──────────────────────────────────────────────────────────
 RECORDING = os.environ.get("RECORD_REGRESSION_BASELINES") == "1"  # set to re-baseline

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cognitive_memory.engine import (
+from synaptra.engine import (
     MemoryEngine,
     _build_decay_report,
     _build_gaps,
@@ -407,7 +407,7 @@ class TestGetHealthIntegration:
 
     async def test_consolidation_grouping_by_date(self, engine):
         """Consolidation section reflects actual log entries grouped by date (US-5.1)."""
-        from cognitive_memory.models import ConsolidationLogEntry
+        from synaptra.models import ConsolidationLogEntry
 
         now = datetime.now(timezone.utc)
         # Insert 2 promote + 1 archive on today's date

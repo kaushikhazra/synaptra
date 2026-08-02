@@ -14,7 +14,7 @@ from surrealdb import Surreal
 SCHEMA_PATH = (
     Path(__file__).resolve().parent.parent
     / "src"
-    / "cognitive_memory"
+    / "synaptra"
     / "schema.surql"
 )
 

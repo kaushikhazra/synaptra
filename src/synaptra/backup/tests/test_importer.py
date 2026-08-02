@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from cognitive_memory.backup.exporter import export_backup
-from cognitive_memory.backup.importer import import_backup, ImportError
+from synaptra.backup.exporter import export_backup
+from synaptra.backup.importer import import_backup, ImportError
 
 
 class TestImporterNonEmptyTarget:
@@ -135,7 +135,7 @@ class TestRoundTrip:
 
         # 3. Open the restored DB and verify counts
         from surrealdb import Surreal
-        from cognitive_memory.backup.exporter import _rows
+        from synaptra.backup.exporter import _rows
 
         restored_url = f"surrealkv://{str(target_dir).replace(os.sep, '/')}"
         restored_db = Surreal(restored_url)

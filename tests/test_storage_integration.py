@@ -5,8 +5,8 @@ from importlib.metadata import version
 
 import surrealdb
 
-from cognitive_memory.models import Memory, MemoryState, MemoryType
-from cognitive_memory.surreal_storage import SurrealStorage
+from synaptra.models import Memory, MemoryState, MemoryType
+from synaptra.surreal_storage import SurrealStorage
 
 SURREALDB_VERSION = getattr(surrealdb, "__version__", version("surrealdb"))
 

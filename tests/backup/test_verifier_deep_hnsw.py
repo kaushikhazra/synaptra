@@ -114,8 +114,8 @@ class TestDeepVerifyDatetimeCoercion:
 
     def test_coerce_datetimes_called_for_each_row(self, tmp_path: Path) -> None:
         """_coerce_datetimes must be invoked for every memory row in _deep_verify."""
-        from cognitive_memory.backup import verifier as verifier_mod
-        from cognitive_memory.backup.verifier import _deep_verify
+        from synaptra.backup import verifier as verifier_mod
+        from synaptra.backup.verifier import _deep_verify
 
         rows = [_make_memory_row(f"mem-{i:04d}") for i in range(3)]
         backup_dir = tmp_path / "backup"
@@ -131,9 +131,9 @@ class TestDeepVerifyDatetimeCoercion:
 
         with (
             patch("surrealdb.Surreal", return_value=mock_db),
-            patch("cognitive_memory.backup.importer._coerce_datetimes",
+            patch("synaptra.backup.importer._coerce_datetimes",
                   wraps=__import__(
-                      "cognitive_memory.backup.importer", fromlist=["_coerce_datetimes"]
+                      "synaptra.backup.importer", fromlist=["_coerce_datetimes"]
                   )._coerce_datetimes) as mock_coerce,
         ):
             result: dict = {"ok": True, "warnings": [], "errors": [], "exit_code": 0}
@@ -147,8 +147,8 @@ class TestDeepVerifyDatetimeCoercion:
 
     def test_coerced_content_passed_to_create(self, tmp_path: Path) -> None:
         """The content dict passed to CREATE must have datetime objects, not ISO strings."""
-        from cognitive_memory.backup import verifier as verifier_mod
-        from cognitive_memory.backup.verifier import _deep_verify
+        from synaptra.backup import verifier as verifier_mod
+        from synaptra.backup.verifier import _deep_verify
 
         rows = [_make_memory_row("mem-coerce-check")]
         backup_dir = tmp_path / "backup"
@@ -184,8 +184,8 @@ class TestDeepVerifyDatetimeCoercion:
 
     def test_hnsw_warning_not_emitted_when_records_created(self, tmp_path: Path) -> None:
         """When records are successfully created, no HNSW 0-results warning should appear."""
-        from cognitive_memory.backup import verifier as verifier_mod
-        from cognitive_memory.backup.verifier import _deep_verify
+        from synaptra.backup import verifier as verifier_mod
+        from synaptra.backup.verifier import _deep_verify
 
         rows = [_make_memory_row(f"mem-{i:04d}") for i in range(5)]
         backup_dir = tmp_path / "backup"
@@ -219,7 +219,7 @@ class TestDeepVerifyHNSWZeroResultsRegression:
         This is the direct regression for Bug 2: before the fix, ISO strings were
         passed through as-is, causing SurrealDB to silently reject records.
         """
-        from cognitive_memory.backup.importer import _coerce_datetimes
+        from synaptra.backup.importer import _coerce_datetimes
 
         row = _make_memory_row("regression-mem", iso_datetimes=True)
         # Confirm input has ISO strings
@@ -235,7 +235,7 @@ class TestDeepVerifyHNSWZeroResultsRegression:
 
     def test_embedding_preserved_after_coercion(self, tmp_path: Path) -> None:
         """_coerce_datetimes must not alter the embedding field."""
-        from cognitive_memory.backup.importer import _coerce_datetimes
+        from synaptra.backup.importer import _coerce_datetimes
 
         emb = _make_embedding()
         row = _make_memory_row("emb-preserve")

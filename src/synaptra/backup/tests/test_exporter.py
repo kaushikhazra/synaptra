@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cognitive_memory.backup.exporter import (
+from synaptra.backup.exporter import (
     export_backup,
     _extract_id,
     _rows,
