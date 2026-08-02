@@ -25,13 +25,13 @@ class MockSentenceTransformer:
         return vec
 
 # Patch
-import cognitive_memory.embeddings as emb_module
+import synaptra.embeddings as emb_module
 _original_ensure = emb_module.EmbeddingService._ensure_model
 emb_module.EmbeddingService._ensure_model = lambda self: setattr(self, '_model', MockSentenceTransformer()) if self._model is None else None
 
-from cognitive_memory.engine import MemoryEngine
-from cognitive_memory.models import MemoryState, MemoryType
-from cognitive_memory import decay as decay_mod
+from synaptra.engine import MemoryEngine
+from synaptra.models import MemoryState, MemoryType
+from synaptra import decay as decay_mod
 
 
 class TestRunner:
@@ -597,7 +597,7 @@ def run_tests():
 
     def test_memory_who_empty_person_returns_error():
         """B2: memory_who('') must return an error, not random recall results."""
-        import cognitive_memory.server as server_mod
+        import synaptra.server as server_mod
         for empty_input in ("", "   ", "\t"):
             result = json.loads(server_mod.memory_who(empty_input))
             assert result["success"] is False, f"Expected failure for person={empty_input!r}, got success"

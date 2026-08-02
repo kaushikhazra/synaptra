@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from cognitive_memory.models import ReinforceUpdate, RelType, SpreadingActivationRow
-from cognitive_memory.surreal_server_storage import (
+from synaptra.models import ReinforceUpdate, RelType, SpreadingActivationRow
+from synaptra.surreal_server_storage import (
     SurrealServerStorage,
     _build_walk_sql,
 )

@@ -22,7 +22,7 @@ os.environ["SYNAPTRA_BACKEND"] = "surrealkv-file"
 import numpy as np
 
 # Patch the embedding service BEFORE the server imports the engine
-import cognitive_memory.embeddings as emb_module
+import synaptra.embeddings as emb_module
 
 
 class _MockModel:
@@ -48,6 +48,6 @@ def _patched_ensure(self):
 emb_module.EmbeddingService._ensure_model = _patched_ensure
 
 # Now import and run the HTTP server
-from cognitive_memory.server import main
+from synaptra.server import main
 
 main()

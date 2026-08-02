@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 import numpy as np
 import pytest
 
-from cognitive_memory.models import Memory, MemoryState, MemoryType
-from cognitive_memory.retrieval import recall
+from synaptra.models import Memory, MemoryState, MemoryType
+from synaptra.retrieval import recall
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ class TestRecallTimingLogs:
         embeddings = _make_embeddings()
         config = _make_config(recall_timing=True)
 
-        with caplog.at_level(logging.DEBUG, logger="cognitive_memory.retrieval"):
+        with caplog.at_level(logging.DEBUG, logger="synaptra.retrieval"):
             await recall("test query", storage, embeddings, config)
 
         logged_messages = [r.message for r in caplog.records]
@@ -131,7 +131,7 @@ class TestRecallTimingLogs:
         embeddings = _make_embeddings()
         config = _make_config(recall_timing=True)
 
-        with caplog.at_level(logging.DEBUG, logger="cognitive_memory.retrieval"):
+        with caplog.at_level(logging.DEBUG, logger="synaptra.retrieval"):
             await recall("test query", storage, embeddings, config)
 
         timing_messages = [
@@ -149,7 +149,7 @@ class TestRecallTimingLogs:
         embeddings = _make_embeddings()
         config = _make_config(recall_timing=False)
 
-        with caplog.at_level(logging.DEBUG, logger="cognitive_memory.retrieval"):
+        with caplog.at_level(logging.DEBUG, logger="synaptra.retrieval"):
             await recall("test query", storage, embeddings, config)
 
         timing_messages = [
@@ -167,7 +167,7 @@ class TestRecallTimingLogs:
         embeddings = _make_embeddings()
         config = _make_config(recall_timing=True)
 
-        with caplog.at_level(logging.DEBUG, logger="cognitive_memory.retrieval"):
+        with caplog.at_level(logging.DEBUG, logger="synaptra.retrieval"):
             await recall("test query", storage, embeddings, config)
 
         for record in caplog.records:

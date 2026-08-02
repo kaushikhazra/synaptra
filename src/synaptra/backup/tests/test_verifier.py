@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from cognitive_memory.backup.exporter import export_backup
-from cognitive_memory.backup.verifier import verify_backup, VerifyError
+from synaptra.backup.exporter import export_backup
+from synaptra.backup.verifier import verify_backup, VerifyError
 
 
 def _write_minimal_backup(backup_dir: Path, memory_count: int = 3, embed_dim: int = 384) -> None:

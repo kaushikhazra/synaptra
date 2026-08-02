@@ -115,8 +115,8 @@ def _write_backup_fixture(backup_dir: Path, memories: list[dict], edges: dict[st
         (backup_dir / f"{tbl}.ndjson").write_text("", encoding="utf-8")
 
     # Write minimal schema (actual schema not needed — fixture imports via CONTENT)
-    import cognitive_memory
-    schema_src = Path(cognitive_memory.__file__).parent / "schema.surql"
+    import synaptra
+    schema_src = Path(synaptra.__file__).parent / "schema.surql"
     schema_bytes = schema_src.read_bytes()
     (backup_dir / "schema.surql").write_bytes(schema_bytes)
 
@@ -218,7 +218,7 @@ class TestRoundTrip:
         - supports.strength is preserved (not defaulted to 1.0 when fixture has custom value).
         """
         from surrealdb import Surreal
-        from cognitive_memory.backup.importer import import_backup
+        from synaptra.backup.importer import import_backup
 
         memories, edges = _build_fixture()
 

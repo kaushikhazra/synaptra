@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from cognitive_memory.embeddings import EmbeddingService
+from synaptra.embeddings import EmbeddingService
 
 
 class TestWarmupIdempotency:
@@ -51,7 +51,7 @@ class TestRegressionGuard:
         mock_model.encode.return_value = np.zeros(384, dtype=np.float32)
 
         with patch("sentence_transformers.SentenceTransformer", return_value=mock_model):
-            with caplog.at_level(logging.WARNING, logger="cognitive_memory.embeddings"):
+            with caplog.at_level(logging.WARNING, logger="synaptra.embeddings"):
                 svc.embed("test text")
 
         assert any("not pre-loaded" in r.message for r in caplog.records), (
@@ -66,7 +66,7 @@ class TestRegressionGuard:
 
         with patch("sentence_transformers.SentenceTransformer", return_value=mock_model):
             svc.warmup()
-            with caplog.at_level(logging.WARNING, logger="cognitive_memory.embeddings"):
+            with caplog.at_level(logging.WARNING, logger="synaptra.embeddings"):
                 svc.embed("test text")
 
         regression_warnings = [
