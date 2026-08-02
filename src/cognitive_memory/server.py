@@ -580,7 +580,15 @@ def main() -> None:
 
     if args.transport == "stdio":
         # stdio mode: FastMCP speaks MCP protocol over stdin/stdout.
-        # Engine init is deferred to first tool call (lazy _get_engine).
+        # Warm EVERYTHING at process start — identical to the HTTP branch below —
+        # so the first recall does zero initialization on the request path.
+        # Critical for stdio: the embedding model load is a synchronous, multi-
+        # second CPU call; if it fired lazily during the first recall it would
+        # run on anyio's event-loop thread and block the loop, hanging the call.
+        # _get_engine() builds storage (eager surrealkv-file DB connect) + config;
+        # embeddings.warmup() loads the model. After this, recall is query-only.
+        _engine_instance = _get_engine()
+        _engine_instance.embeddings.warmup()
         mcp.run(transport="stdio")
         return
 
