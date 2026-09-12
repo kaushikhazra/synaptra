@@ -972,6 +972,8 @@ class SurrealStorage:
                     rel_strength=rel.strength,
                     current_stability=mem.stability,
                     state=mem.state.value,
+                    last_accessed=mem.last_accessed,
+                    memory_type=mem.memory_type.value,
                 ))
                 queue.append((neighbor_id, depth + 1))
 

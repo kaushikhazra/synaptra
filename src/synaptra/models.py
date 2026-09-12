@@ -143,6 +143,13 @@ class SpreadingActivationRow(NamedTuple):
     rel_strength: float
     current_stability: float
     state: str
+    # Enriched from the neighbour record so the caller can damp the spreading
+    # boost by the neighbour's own retrievability and cap it against its type
+    # ceiling.  Both default to a "missing" value that makes the boost a no-op
+    # rather than unbounded — a walk that fails to enrich must not be able to
+    # inflate stability.
+    last_accessed: datetime | None = None
+    memory_type: str = ""
 
 
 @dataclass

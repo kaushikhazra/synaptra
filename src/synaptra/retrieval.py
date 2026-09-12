@@ -253,6 +253,16 @@ async def recall(
     spread_factor = config.get("spreading_activation.spread_factor", 0.5)
     max_depth = config.get("spreading_activation.max_depth", 3)
     max_boost = config.get("spreading_activation.max_boost", 0.5)
+    # Hard cap on how far spreading activation alone may lift a neighbour, as a
+    # multiple of that memory type's initial stability.  Load-bearing, not a
+    # backstop: the R term alone only reduces growth from exponential to
+    # quadratic (S -> n**2/60), which is still unbounded.  10x keeps a boosted
+    # memory inside its decay class — a semantic memory at 10x halves in ~2.4
+    # years, at 100x in ~24 and stops being mortal at all.  Arithmetic in
+    # decay.apply_spreading_boost.
+    ceiling_multiple = config.get(
+        "spreading_activation.stability_ceiling_multiple", 10.0
+    )
 
     # === Contradictions + Spreading Walk concurrent (Task 6.4) ===
     # D4: server-side bulk walk replaces recursive _spread_from.
@@ -291,19 +301,30 @@ async def recall(
     # Build (new_stability, neighbor_id) pairs for bulk_update_stability.
     # SpreadingActivationRow.current_stability gives pre-boost stability directly —
     # no separate hydration needed (D2a enriched walk return).
-    neighbor_stability: dict[str, float] = {}
+    neighbor_rows: dict[str, SpreadingActivationRow] = {}
     for row in spread_rows:
         # Keep first occurrence per neighbor_id (walk deduplicates to shallowest depth).
-        if row.neighbor_id not in neighbor_stability:
-            neighbor_stability[row.neighbor_id] = row.current_stability
+        if row.neighbor_id not in neighbor_rows:
+            neighbor_rows[row.neighbor_id] = row
 
     spread_boost_pairs: list[tuple[float, str]] = []
     for neighbor_id, boost in spread_boosts.items():
-        cur_s = neighbor_stability.get(neighbor_id)
-        if cur_s is None:
+        row = neighbor_rows.get(neighbor_id)
+        if row is None:
             continue
-        new_s = decay_mod.apply_spreading_boost(cur_s, boost)
-        spread_boost_pairs.append((new_s, neighbor_id))
+        cur_s = row.current_stability
+        # A walk that could not enrich last_accessed cannot tell us how
+        # retrievable the neighbour already is, and an undamped boost is the
+        # defect this guard exists to prevent.  Skip rather than boost blind.
+        if row.last_accessed is None:
+            continue
+        neighbor_r = decay_mod.compute_retrievability(row.last_accessed, cur_s, now)
+        ceiling = ceiling_multiple * decay_mod.get_initial_stability(row.memory_type)
+        new_s = decay_mod.apply_spreading_boost(cur_s, boost, neighbor_r, ceiling)
+        # With the R term most boosts round to nothing; don't spend a write on
+        # a value that did not move.
+        if new_s > cur_s:
+            spread_boost_pairs.append((new_s, neighbor_id))
 
     if timing_enabled:
         _phase_start = time.perf_counter()

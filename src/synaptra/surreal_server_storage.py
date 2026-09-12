@@ -105,7 +105,8 @@ def _build_walk_sql(max_depth: int) -> str:
     ``memory:<id>`` record references.
 
     Returns rows with keys:
-    ``{neighbor_id, depth, rel_strength, current_stability, state}``
+    ``{neighbor_id, depth, rel_strength, current_stability, state,
+    last_accessed, memory_type}``
     """
     lines: list[str] = []
 
@@ -128,7 +129,10 @@ def _build_walk_sql(max_depth: int) -> str:
     for d in range(1, max_depth + 1):
         lines.append(
             f"LET $d{d}_tagged = (SELECT neighbor.id AS neighbor_id, strength, {d} AS depth,"
-            f" neighbor.stability AS current_stability, 'active' AS state FROM $d{d}_raw);"
+            f" neighbor.stability AS current_stability,"
+            f" neighbor.last_accessed AS last_accessed,"
+            f" neighbor.memory_type AS memory_type,"
+            f" 'active' AS state FROM $d{d}_raw);"
         )
 
     # Combine all tagged layers into $all
@@ -143,8 +147,14 @@ def _build_walk_sql(max_depth: int) -> str:
         " math::min(depth) AS depth,"
         " math::max(strength) AS rel_strength,"
         " math::max(current_stability) AS current_stability,"
+        " memory_type,"
+        " last_accessed,"
         " 'active' AS state"
-        " FROM $all GROUP BY neighbor_id;"
+        # memory_type and last_accessed are properties of the neighbour record,
+        # so they are constant within a neighbor_id group.  Grouping by them is
+        # how they become selectable without an aggregate; it cannot split a
+        # group, because the same node cannot carry two values.
+        " FROM $all GROUP BY neighbor_id, memory_type, last_accessed;"
     )
     lines.append("RETURN $deduped;")
 
@@ -1031,12 +1041,26 @@ class SurrealServerStorage:
             if state != "active":
                 continue
             depth = int(r.get("depth") or 0)
+            # Enrichment for the boost damping.  A row that cannot be parsed
+            # leaves last_accessed None, which makes the caller skip the boost
+            # entirely -- the safe direction.
+            raw_last_accessed = r.get("last_accessed")
+            try:
+                last_accessed = (
+                    self._parse_dt(raw_last_accessed)
+                    if raw_last_accessed is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                last_accessed = None
             row = SpreadingActivationRow(
                 neighbor_id=neighbor_id,
                 depth=depth,
                 rel_strength=float(r.get("rel_strength") or 0.0),
                 current_stability=float(r.get("current_stability") or 0.0),
                 state=state,
+                last_accessed=last_accessed,
+                memory_type=str(r.get("memory_type") or ""),
             )
             # Safety: keep shallowest depth per neighbor
             existing = best.get(neighbor_id)
