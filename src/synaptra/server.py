@@ -15,8 +15,56 @@ from mcp.server.fastmcp import FastMCP
 
 from .engine import MemoryEngine
 
+
+class StrictArgumentFastMCP(FastMCP):
+    """FastMCP that rejects unknown argument names instead of discarding them.
+
+    The SDK builds each tool's argument model with Pydantic's default
+    ``extra="ignore"`` and registers the dispatch handler with
+    ``validate_input=False``. A misnamed *optional* argument is therefore
+    dropped before the tool body runs and the call still reports success. A
+    misnamed *required* argument errors only incidentally, because the required
+    field then goes missing -- so the failure mode is invisible exactly where it
+    is most likely.
+    """
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        tool = self._tool_manager.get_tool(name)
+        if tool is not None:
+            declared = set(tool.parameters.get("properties", {}))
+            # Underscore-prefixed keys are reserved by the MCP spec (``_meta``
+            # and friends) and belong to the transport, not to the tool. They
+            # are not the caller's typo, and rejecting them would fail every
+            # call to every tool rather than catching a misnamed argument.
+            supplied = {k for k in arguments if not k.startswith("_")}
+            unknown = sorted(supplied - declared)
+            if unknown:
+                raise ValueError(
+                    f"Unknown argument(s) for {name!r}: {', '.join(unknown)}. "
+                    f"Accepted arguments: {', '.join(sorted(declared))}."
+                )
+        return await super().call_tool(name, arguments)
+
+
+def _resolve_type_alias(type_: str | None, memory_type: str | None) -> str | None:
+    """Resolve the ``type`` / ``memory_type`` pair to a single value.
+
+    The stored field, the response field and the CLI flag are all
+    ``memory_type``, while the tool argument is ``type``. A caller reading a
+    response and passing the field name straight back is making the natural
+    move, so ``memory_type`` is accepted here as an alias rather than treated
+    as a mistake.
+    """
+    if type_ is not None and memory_type is not None and type_ != memory_type:
+        raise ValueError(
+            f"Conflicting type arguments: type={type_!r} and "
+            f"memory_type={memory_type!r}. Pass one."
+        )
+    return type_ if type_ is not None else memory_type
+
+
 # Create FastMCP server with Streamable HTTP
-mcp = FastMCP(
+mcp = StrictArgumentFastMCP(
     "synaptra",
     streamable_http_path="/mcp",
     json_response=False,
@@ -104,14 +152,15 @@ async def memory_store(
     tags: list[str] | None = None,
     source: str | None = None,
     conversation_id: str | None = None,
+    memory_type: str | None = None,
 ) -> str:
-    """Store a new memory with automatic classification and importance scoring. Agent can override type and importance."""
+    """Store a new memory with automatic classification and importance scoring. Agent can override type and importance. `memory_type` is accepted as an alias for `type`."""
     start = time.time()
     engine = _get_engine()
     try:
         mem = await engine.store_memory(
             content=content,
-            memory_type=type,
+            memory_type=_resolve_type_alias(type, memory_type),
             importance=importance,
             tags=tags,
             source=source,
@@ -176,15 +225,16 @@ async def memory_update(
     type: str | None = None,
     importance: float | None = None,
     tags: list[str] | None = None,
+    memory_type: str | None = None,
 ) -> str:
-    """Update a memory's content or metadata. Creates a version snapshot, re-embeds if content changed, reinforces stability."""
+    """Update a memory's content or metadata. Creates a version snapshot, re-embeds if content changed, reinforces stability. `memory_type` is accepted as an alias for `type`."""
     start = time.time()
     engine = _get_engine()
     try:
         mem = await engine.update_memory(
             memory_id=id,
             content=content,
-            memory_type=type,
+            memory_type=_resolve_type_alias(type, memory_type),
             importance=importance,
             tags=tags,
         )
