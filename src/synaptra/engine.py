@@ -699,10 +699,23 @@ class MemoryEngine:
 
     # === Config ===
 
+    async def load_config_overrides(self) -> None:
+        """Load storage config overrides into the in-memory cache. Idempotent.
+
+        Must be awaited before any config read can see an override on an async
+        backend. Costs a boolean check after the first call.
+        """
+        await self.config.load_overrides()
+
     def get_config(self, key: str | None = None) -> dict:
         if key:
             return {"key": key, "value": self.config.get(key)}
         return self.config.get_all()
 
+    async def set_config_async(self, key: str, value) -> None:
+        """Persist a config override. Use this on async backends."""
+        await self.config.set_async(key, value)
+
     def set_config(self, key: str, value) -> None:
+        """Synchronous write — raises on an async backend rather than dropping it."""
         self.config.set(key, value)

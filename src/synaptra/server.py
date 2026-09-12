@@ -126,6 +126,19 @@ def _get_engine() -> MemoryEngine:
         return _engine
 
 
+async def _get_engine_ready() -> MemoryEngine:
+    """Return the engine with its config overrides loaded.
+
+    `_get_engine` is synchronous, and on an async backend the overrides can only
+    be read by awaiting storage. Without this, every config read silently serves
+    the YAML default. The loader is idempotent, so this is a boolean check after
+    the first call.
+    """
+    engine = _get_engine()
+    await engine.load_config_overrides()
+    return engine
+
+
 def _response(data: Any = None, elapsed_ms: float = 0, **meta_extra) -> str:
     """Build standard tool response as JSON string."""
     result = {
@@ -162,7 +175,7 @@ async def memory_store(
     same content differently, so a score with no rater cannot be compared to
     any other score."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         mem = await engine.store_memory(
             content=content,
@@ -188,7 +201,7 @@ async def memory_recall(
 ) -> str:
     """Multi-strategy retrieval: semantic + keyword + graph + temporal, fused with RRF, decay-weighted. Returns ranked memories with provenance."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         tr = None
         if time_range:
@@ -215,7 +228,7 @@ async def memory_recall(
 async def memory_get(id: str) -> str:
     """Get a specific memory by ID with full metadata, relationships, version history, and on-the-fly retrievability. Read-only."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         result = await engine.get_memory(id)
         if result is None:
@@ -241,7 +254,7 @@ async def memory_update(
     the model producing the new score. An update to content, type or tags leaves
     the existing rater untouched, because the score did not change."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         mem = await engine.update_memory(
             memory_id=id,
@@ -267,7 +280,7 @@ async def memory_relate(
 ) -> str:
     """Create a typed relationship between two memories. Default strength=1.0."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         rel = await engine.create_relationship(source_id, target_id, rel_type, strength)
         return _response(rel.model_dump(), (time.time() - start) * 1000)
@@ -283,7 +296,7 @@ async def memory_related(
 ) -> str:
     """Get related memories via graph traversal. Read-only, no side effects."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         results = await engine.get_related(id, depth=depth, rel_types=rel_types)
         return _response(results, (time.time() - start) * 1000)
@@ -295,7 +308,7 @@ async def memory_related(
 async def memory_unrelate(source_id: str, target_id: str, rel_type: str) -> str:
     """Remove a relationship between two memories."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         success = await engine.delete_relationship(source_id, target_id, rel_type)
         return _response({"deleted": success}, (time.time() - start) * 1000)
@@ -317,7 +330,7 @@ async def memory_list(
 ) -> str:
     """Browse memories with filters and full-text search."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         tr = None
         if time_range:
@@ -363,7 +376,7 @@ async def memory_rerate_candidates(
     for stale scores must not itself alter decay state.
     """
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         memories = await engine.storage.list_memories(
             memory_type=type,
@@ -403,7 +416,7 @@ async def memory_archive(
 ) -> str:
     """Archive memory/memories. Supports single ID, bulk IDs, or threshold-based."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if id:
             success = await engine.archive_memory(id)
@@ -428,7 +441,7 @@ async def memory_restore(
 ) -> str:
     """Restore archived memory/memories. Resets decay."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if id:
             mem = await engine.restore_memory(id)
@@ -455,7 +468,7 @@ async def memory_delete(
 ) -> str:
     """Permanently delete memory/memories. Cascades: relationships, versions, embeddings. Requires confirm=true."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if not confirm:
             return _error("confirm must be true for permanent deletion")
@@ -479,7 +492,7 @@ async def memory_delete(
 async def memory_stats() -> str:
     """System statistics: counts by type/state, average decay by type, consolidation history, storage usage."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         stats = await engine.get_stats()
         return _response(stats, (time.time() - start) * 1000)
@@ -491,7 +504,7 @@ async def memory_stats() -> str:
 async def memory_consolidate(dry_run: bool = False) -> str:
     """Trigger consolidation pipeline: decay update, promotion, archival, clustering, merging. Supports dry_run."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         actions = await engine.consolidate(dry_run=dry_run)
         return _response(
@@ -513,7 +526,7 @@ async def memory_self(
     Supports optional tags filter for facet categories (e.g., 'origin', 'values', 'capability').
     """
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         results = await engine.recall(
             query=query,
@@ -549,7 +562,7 @@ async def memory_who(
     if not person_name:
         return _error("person name is required")
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         # Build tag filter: person:{name} (lowercase)
         person_tag = f"person:{person_name}"
@@ -605,7 +618,7 @@ async def memory_health() -> str:
     Read-only — no side effects.
     """
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         report = await engine.get_health()
 
@@ -652,12 +665,15 @@ async def memory_config(
 ) -> str:
     """View or update configuration. No params = return all. Key only = read. Key + value = write."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if key and value is not None:
-            engine.set_config(key, value)
+            await engine.set_config_async(key, value)
+            # Report what is now stored, never the argument that came in. A
+            # confirmation built from the request cannot detect a dropped write.
+            stored = engine.get_config(key).get("value")
             return _response(
-                {"key": key, "value": value, "action": "set"},
+                {"key": key, "value": stored, "action": "set"},
                 (time.time() - start) * 1000,
             )
         elif key:

@@ -761,9 +761,16 @@ def config(ctx, key, value):
 
     data = response.get("data", {})
 
-    # Set confirmation
+    # Set confirmation — report the stored value from the response, never the
+    # argument we sent. Falling back to the input makes a dropped write look
+    # identical to a successful one.
     if key and value is not None:
-        click.echo(f"Set {key} = {data.get('value', value)}")
+        if "value" in data:
+            click.echo(f"Set {key} = {data['value']}")
+        else:
+            click.echo(
+                f"Wrote {key}, but the server returned no stored value to confirm it."
+            )
         return
 
     # Single key read
