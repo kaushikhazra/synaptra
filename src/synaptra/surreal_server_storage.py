@@ -35,6 +35,7 @@ from .surreal_storage import (
     _extract_id,
     _rid,
     _to_iso,
+    validate_edge_endpoints,
 )
 
 from surrealdb import AsyncSurreal, RecordID
@@ -740,6 +741,10 @@ class SurrealServerStorage:
     # ──────────────────────────────────────────────────────────────────────────
 
     async def insert_relationship(self, rel: Relationship) -> None:
+        # Single chokepoint — see validate_edge_endpoints.  Covers the MCP
+        # path AND consolidation / _auto_link / _contradiction_check.
+        await validate_edge_endpoints(self, rel)
+
         table = REL_TABLES[rel.rel_type.value]
         result = await self._query(
             f"""LET $from = type::thing('memory', $src);
@@ -1199,45 +1204,35 @@ class SurrealServerStorage:
         return (items[:50], true_count)
 
     async def get_orphan_unconnected(self) -> tuple[list[dict], int]:
-        _EDGE_IDS = """array::distinct(array::flatten([
-            (SELECT VALUE in  FROM causes),
-            (SELECT VALUE out FROM causes),
-            (SELECT VALUE in  FROM follows),
-            (SELECT VALUE out FROM follows),
-            (SELECT VALUE in  FROM contradicts),
-            (SELECT VALUE out FROM contradicts),
-            (SELECT VALUE in  FROM supports),
-            (SELECT VALUE out FROM supports),
-            (SELECT VALUE in  FROM relates_to),
-            (SELECT VALUE out FROM relates_to),
-            (SELECT VALUE in  FROM supersedes),
-            (SELECT VALUE out FROM supersedes),
-            (SELECT VALUE in  FROM part_of),
-            (SELECT VALUE out FROM part_of),
-            (SELECT VALUE in  FROM describes),
-            (SELECT VALUE out FROM describes)
-        ]))"""
+        # _EDGE_IDS is a CORRELATED SUBQUERY: placed in WHERE, SurrealDB does not
+        # hoist it, so those 16 SELECTs plus the flatten/distinct were re-evaluated
+        # once PER CANDIDATE ROW.  At ~2600 active memories against ~1800 endpoints
+        # that never finished — memory_health hung past 300 s and was unusable.
+        #
+        # Collect the endpoint set ONCE, then filter.  Measured upstream on the
+        # live store: 0.67 s total, against >120 s that never completed.
+        edge_ids: set[str] = set()
+        for rel in REL_TABLES.values():
+            for side in ("in", "out"):
+                rows = await self._query(f"SELECT VALUE {side} FROM {rel}")
+                if isinstance(rows, list):
+                    edge_ids.update(str(r) for r in rows if r is not None)
 
-        count_result = await self._query(
-            f"SELECT count() AS cnt FROM memory "
-            f"WHERE state = 'active' AND id NOT IN {_EDGE_IDS} GROUP ALL"
+        list_result = await self._query(
+            "SELECT id, string::slice(content, 0, 120) AS content_preview, "
+            "memory_type, tags, created_at "
+            "FROM memory WHERE state = 'active' "
+            "ORDER BY created_at ASC"
         )
-        count_rows = self._rows(count_result)
-        if count_rows and isinstance(count_rows[0], dict):
-            true_count = count_rows[0].get("cnt", 0)
-        else:
-            true_count = 0
-
+        unconnected = [
+            r
+            for r in self._rows(list_result)
+            if isinstance(r, dict) and "id" in r and str(r["id"]) not in edge_ids
+        ]
+        true_count = len(unconnected)
         if true_count == 0:
             return ([], 0)
 
-        list_result = await self._query(
-            f"SELECT id, string::slice(content, 0, 120) AS content_preview, "
-            f"memory_type, tags, created_at "
-            f"FROM memory "
-            f"WHERE state = 'active' AND id NOT IN {_EDGE_IDS} "
-            f"ORDER BY created_at ASC LIMIT 51"
-        )
         items = [
             {
                 "id": _extract_id(r["id"]),
@@ -1246,10 +1241,9 @@ class SurrealServerStorage:
                 "tags": r.get("tags") or [],
                 "created_at": self._parse_dt(r["created_at"]).isoformat(),
             }
-            for r in self._rows(list_result)
-            if isinstance(r, dict) and "id" in r
+            for r in unconnected[:50]
         ]
-        return (items[:50], true_count)
+        return (items, true_count)
 
     async def get_tag_frequencies(self) -> list[list[str]]:
         result = await self._query("SELECT tags FROM memory WHERE state = 'active'")

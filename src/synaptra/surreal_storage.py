@@ -62,6 +62,40 @@ def _to_iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
+async def validate_edge_endpoints(storage, rel) -> None:
+    """Refuse an edge whose endpoints do not resolve to existing memories.
+
+    Lives at the STORAGE layer, not the engine, so there is exactly one
+    chokepoint and no privileged callers.  An invariant enforced only on the
+    path a caller happens to take is not an invariant — and the internal
+    writers (consolidation, _auto_link, _contradiction_check) are precisely the
+    ones nobody would think to audit later.
+
+    Shared by both backends rather than duplicated: two copies of a rule are
+    two chances to fix only one of them.
+
+    Archived memories are VALID endpoints — the row still exists, and edges into
+    archived memories are the normal state of an aging graph.  Refusing them
+    would break consolidation, a worse bug than the one being fixed.
+
+    Raises:
+        ValueError: naming exactly which endpoint(s) did not resolve.
+    """
+    unresolved: list[str] = []
+    for label, mid in (("source_id", rel.source_id), ("target_id", rel.target_id)):
+        if not mid or await storage.get_memory(mid) is None:
+            unresolved.append(f"{label}={mid!r}")
+
+    if unresolved:
+        raise ValueError(
+            "Cannot create relationship: "
+            + " and ".join(unresolved)
+            + " does not resolve to an existing memory. "
+            "Both endpoints must exist (archived memories are valid endpoints). "
+            "No edge was created."
+        )
+
+
 class SurrealStorage:
     """SurrealDB embedded storage backend for synaptra memory system."""
 
@@ -426,6 +460,9 @@ class SurrealStorage:
     # --- Relationships ---
 
     async def insert_relationship(self, rel: Relationship) -> None:
+        # Single chokepoint — see validate_edge_endpoints.
+        await validate_edge_endpoints(self, rel)
+
         table = REL_TABLES[rel.rel_type.value]
         result = self._db.query(
             f"""LET $from = type::thing('memory', $src);
@@ -690,50 +727,37 @@ class SurrealStorage:
     async def get_orphan_unconnected(self) -> tuple[list[dict], int]:
         """Return active memories with no relationships in any edge table: (capped_list[:50], true_count).
 
-        Uses two separate queries (count then list) with inline subqueries instead of LET,
-        because the embedded SurrealDB Python SDK returns None for LET-based multi-statement
-        queries, making the LET approach unreliable in tests and embedded deployments.
+        Collects the edge-endpoint set with one SELECT per edge table and side,
+        then filters in Python.  Not a LET: the original bug WAS a planner
+        assumption, and fixing it with another would trade one unverified
+        belief for another.
         """
-        _EDGE_IDS = """array::distinct(array::flatten([
-            (SELECT VALUE in  FROM causes),
-            (SELECT VALUE out FROM causes),
-            (SELECT VALUE in  FROM follows),
-            (SELECT VALUE out FROM follows),
-            (SELECT VALUE in  FROM contradicts),
-            (SELECT VALUE out FROM contradicts),
-            (SELECT VALUE in  FROM supports),
-            (SELECT VALUE out FROM supports),
-            (SELECT VALUE in  FROM relates_to),
-            (SELECT VALUE out FROM relates_to),
-            (SELECT VALUE in  FROM supersedes),
-            (SELECT VALUE out FROM supersedes),
-            (SELECT VALUE in  FROM part_of),
-            (SELECT VALUE out FROM part_of),
-            (SELECT VALUE in  FROM describes),
-            (SELECT VALUE out FROM describes)
-        ]))"""
-
-        count_result = self._db.query(
-            f"SELECT count() AS cnt FROM memory "
-            f"WHERE state = 'active' AND id NOT IN {_EDGE_IDS} GROUP ALL"
-        )
-        count_rows = self._rows(count_result)
-        if count_rows and isinstance(count_rows[0], dict):
-            true_count = count_rows[0].get("cnt", 0)
-        else:
-            true_count = 0
-
-        if true_count == 0:
-            return ([], 0)
+        # _EDGE_IDS in WHERE is a CORRELATED SUBQUERY — SurrealDB re-evaluates all
+        # 16 SELECTs plus the flatten/distinct once PER CANDIDATE ROW.  On the
+        # server backend that made memory_health hang past 300 s; the same shape
+        # is here, so it is fixed here too rather than left as a latent trap.
+        # Collect the endpoint set once, then filter.
+        edge_ids: set[str] = set()
+        for rel in REL_TABLES.values():
+            for side in ("in", "out"):
+                rows = self._db.query(f"SELECT VALUE {side} FROM {rel}")
+                if isinstance(rows, list):
+                    edge_ids.update(str(r) for r in rows if r is not None)
 
         list_result = self._db.query(
-            f"SELECT id, string::slice(content, 0, 120) AS content_preview, "
-            f"memory_type, tags, created_at "
-            f"FROM memory "
-            f"WHERE state = 'active' AND id NOT IN {_EDGE_IDS} "
-            f"ORDER BY created_at ASC LIMIT 51"
+            "SELECT id, string::slice(content, 0, 120) AS content_preview, "
+            "memory_type, tags, created_at "
+            "FROM memory WHERE state = 'active' "
+            "ORDER BY created_at ASC"
         )
-        list_rows = self._rows(list_result)
+        unconnected = [
+            r
+            for r in self._rows(list_result)
+            if isinstance(r, dict) and "id" in r and str(r["id"]) not in edge_ids
+        ]
+        true_count = len(unconnected)
+        if true_count == 0:
+            return ([], 0)
 
         items = [
             {
@@ -743,9 +767,9 @@ class SurrealStorage:
                 "tags": r.get("tags") or [],
                 "created_at": self._parse_dt(r["created_at"]).isoformat(),
             }
-            for r in list_rows if isinstance(r, dict) and "id" in r
+            for r in unconnected[:50]
         ]
-        return (items[:50], true_count)
+        return (items, true_count)
 
     async def get_tag_frequencies(self) -> list[list[str]]:
         """Return all active memory tag arrays; engine flattens and counts (D7)."""
