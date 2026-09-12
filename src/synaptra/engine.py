@@ -16,6 +16,7 @@ from .classification import classify, score_importance
 from .config import Config
 from .embeddings import EmbeddingService
 from .models import (
+    AUTO_RATER,
     ContradictionInfo,
     Memory,
     MemoryGetResponse,
@@ -31,6 +32,24 @@ from .models import (
 )
 from .protocols import StorageProtocol
 from .surreal_storage import SurrealStorage
+
+
+def _require_rater(rater: str | None) -> None:
+    """Reject a write that sets `importance` without naming who rated it.
+
+    Importance drives retrieval ranking, and different models score the same
+    content differently — so a score whose rater is unknown cannot be compared
+    to any other score. Silently defaulting would re-open the NULL set, which
+    is meant to be closed and to mean exactly "written before rater tracking".
+    """
+    if rater is None or not rater.strip():
+        raise ValueError(
+            "rater is required when setting importance. Pass the identifier of "
+            "the model producing the score, e.g. rater='claude-opus-5'. "
+            "Importance is rater-relative: a score with no rater cannot be "
+            "compared to any other score."
+        )
+
 
 # --- Health report private helpers (module-level, not class methods) ---
 
@@ -192,8 +211,17 @@ class MemoryEngine:
         tags: list[str] | None = None,
         source: str | None = None,
         conversation_id: str | None = None,
+        *,
+        rater: str,
     ) -> Memory:
-        """Store a new memory with classification, embedding, auto-linking, and contradiction check."""
+        """Store a new memory with classification, embedding, auto-linking, and contradiction check.
+
+        `rater` is mandatory. Importance is not an absolute quantity — different
+        models score the same content differently — so a score is only comparable
+        to another score from the same rater. MCP carries no model identity, so
+        the caller is the only thing that knows who is rating. See issue #8.
+        """
+        _require_rater(rater)
         now = datetime.now(timezone.utc)
         memory_id = str(uuid.uuid4())
 
@@ -239,6 +267,11 @@ class MemoryEngine:
             last_accessed=now,
             source=source,
             conversation_id=conversation_id,
+            # If the agent supplied importance, the agent rated it. If it did
+            # not, `score_importance` fell back to its heuristic — so the
+            # heuristic is the rater, not the caller.
+            rater=rater if importance is not None else AUTO_RATER,
+            rated_at=now,
             tags=tags or [],
         )
 
@@ -317,8 +350,17 @@ class MemoryEngine:
         memory_type: str | None = None,
         importance: float | None = None,
         tags: list[str] | None = None,
+        rater: str | None = None,
     ) -> Memory | None:
-        """Update a memory with versioning, re-embedding, reinforcement."""
+        """Update a memory with versioning, re-embedding, reinforcement.
+
+        `rater` is required ONLY when `importance` changes. An update that
+        touches content, type or tags leaves `rater` and `rated_at` untouched —
+        refreshing them on every update would relabel an old score as freshly
+        rated, destroying the signal issue #8 exists to create.
+        """
+        if importance is not None:
+            _require_rater(rater)
         mem = await self.storage.get_memory(memory_id)
         if mem is None:
             return None
@@ -357,6 +399,9 @@ class MemoryEngine:
             fields["memory_type"] = MemoryType(memory_type)
         if importance is not None:
             fields["importance"] = max(0.1, min(1.0, importance))
+            # Only re-stamp the rater when the score itself changed.
+            fields["rater"] = rater
+            fields["rated_at"] = now
         if tags is not None:
             fields["tags"] = tags
 

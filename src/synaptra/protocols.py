@@ -38,6 +38,7 @@ class StorageProtocol(Protocol):
         time_range: tuple[datetime, datetime] | None = None,
         importance_min: float | None = None,
         importance_max: float | None = None,
+        rater_not: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Memory]: ...

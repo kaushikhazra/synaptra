@@ -153,8 +153,14 @@ async def memory_store(
     source: str | None = None,
     conversation_id: str | None = None,
     memory_type: str | None = None,
+    rater: str | None = None,
 ) -> str:
-    """Store a new memory with automatic classification and importance scoring. Agent can override type and importance. `memory_type` is accepted as an alias for `type`."""
+    """Store a new memory with automatic classification and importance scoring. Agent can override type and importance. `memory_type` is accepted as an alias for `type`.
+
+    `rater` is REQUIRED — the identifier of the model calling this tool, e.g.
+    'claude-opus-5'. Importance is rater-relative: different models score the
+    same content differently, so a score with no rater cannot be compared to
+    any other score."""
     start = time.time()
     engine = _get_engine()
     try:
@@ -165,6 +171,7 @@ async def memory_store(
             tags=tags,
             source=source,
             conversation_id=conversation_id,
+            rater=rater,
         )
         return _response(mem.model_dump(), (time.time() - start) * 1000)
     except Exception as e:
@@ -226,8 +233,13 @@ async def memory_update(
     importance: float | None = None,
     tags: list[str] | None = None,
     memory_type: str | None = None,
+    rater: str | None = None,
 ) -> str:
-    """Update a memory's content or metadata. Creates a version snapshot, re-embeds if content changed, reinforces stability. `memory_type` is accepted as an alias for `type`."""
+    """Update a memory's content or metadata. Creates a version snapshot, re-embeds if content changed, reinforces stability. `memory_type` is accepted as an alias for `type`.
+
+    `rater` is required ONLY when changing `importance` — pass the identifier of
+    the model producing the new score. An update to content, type or tags leaves
+    the existing rater untouched, because the score did not change."""
     start = time.time()
     engine = _get_engine()
     try:
@@ -237,6 +249,7 @@ async def memory_update(
             memory_type=_resolve_type_alias(type, memory_type),
             importance=importance,
             tags=tags,
+            rater=rater,
         )
         if mem is None:
             return _error(f"Memory {id} not found")
@@ -325,6 +338,57 @@ async def memory_list(
         )
         return _response(
             {"memories": [m.model_dump() for m in memories]},
+            (time.time() - start) * 1000,
+        )
+    except Exception as e:
+        return _error(str(e))
+
+
+@mcp.tool()
+async def memory_rerate_candidates(
+    model: str,
+    type: str | None = None,
+    state: str | None = "active",
+    limit: int = 50,
+    offset: int = 0,
+) -> str:
+    """List memories whose importance was set by a rater OTHER than `model` — the re-rating candidates.
+
+    Importance is rater-relative: different models score the same content
+    differently, so a score set by another rater is not comparable to one this
+    model would give. Memories with NO rater are included — they predate rater
+    tracking, so they differ from every model.
+
+    Read-only. Nothing is re-scored, and access counts are not touched — looking
+    for stale scores must not itself alter decay state.
+    """
+    start = time.time()
+    engine = _get_engine()
+    try:
+        memories = await engine.storage.list_memories(
+            memory_type=type,
+            state=state,
+            rater_not=model,
+            limit=limit,
+            offset=offset,
+        )
+        return _response(
+            {
+                "model": model,
+                "candidates": [
+                    {
+                        "id": m.id,
+                        "memory_type": m.memory_type.value,
+                        "importance": m.importance,
+                        "rater": m.rater,
+                        "rated_at": m.rated_at.isoformat() if m.rated_at else None,
+                        "first_line": m.content.splitlines()[0][:200]
+                        if m.content
+                        else "",
+                    }
+                    for m in memories
+                ],
+            },
             (time.time() - start) * 1000,
         )
     except Exception as e:

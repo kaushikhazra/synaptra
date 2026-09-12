@@ -204,6 +204,47 @@ def cli(ctx: click.Context, url: str | None, json_mode: bool) -> None:
 # === Browsing commands ===
 
 
+@cli.command("rerate-candidates")
+@click.option(
+    "--model",
+    required=True,
+    help="The model asking, e.g. 'claude-opus-5'. Memories rated by anyone else "
+    "— including memories with no rater at all — are candidates.",
+)
+@click.option("--type", "mem_type", default=None, help="Filter by memory type")
+@click.option("--state", default="active", help="Filter by state (default: active)")
+@click.option("--limit", default=20, type=int, help="Max results (default: 20)")
+@click.option("--offset", default=0, type=int, help="Skip first N results")
+@click.pass_context
+def rerate_candidates(ctx, model, mem_type, state, limit, offset):
+    """List memories whose importance was set by a rater other than --model.
+
+    Read-only: nothing is re-scored and no access counts are touched.
+    """
+    params = {"model": model, "limit": limit, "offset": offset, "state": state}
+    if mem_type:
+        params["type"] = mem_type
+
+    response = run_tool(ctx, "memory_rerate_candidates", params)
+
+    if ctx.obj["json"]:
+        output_json(response)
+        return
+
+    candidates = response.get("data", {}).get("candidates", [])
+    if not candidates:
+        click.echo(f"No re-rating candidates for {model}.")
+        return
+
+    for c in candidates:
+        rater = c.get("rater") or "— (pre-rater-tracking)"
+        click.echo(
+            f"[{c.get('id', '')[:8]}] {c.get('memory_type', '?')} | "
+            f"{c.get('importance', 0):.2f} | rated by {rater}"
+        )
+        click.echo(f"  {c.get('first_line', '')}")
+
+
 @cli.command("list")
 @click.option("--type", "mem_type", default=None, help="Filter by type (working, episodic, semantic, procedural)")
 @click.option("--state", default=None, help="Filter by state (active, archived)")
@@ -286,6 +327,8 @@ def get(ctx, id):
         ("Tags", ", ".join(mem.get("tags", [])) or "\u2014"),
         ("Source", mem.get("source") or "\u2014"),
         ("Conversation", mem.get("conversation_id") or "\u2014"),
+        ("Rater", mem.get("rater") or "\u2014"),
+        ("Rated", mem.get("rated_at") or "\u2014"),
         ("Created", mem.get("created_at", "?")),
         ("Updated", mem.get("updated_at", "?")),
         ("Last Accessed", mem.get("last_accessed", "?")),
@@ -452,8 +495,14 @@ def recall(ctx, query, mem_type, tags, limit, time_start, time_end):
 @click.option("--tags", default=None, help="Tags (comma-separated)")
 @click.option("--importance", default=None, type=float, help="Importance (0.0-1.0)")
 @click.option("--source", default=None, help="Source metadata")
+@click.option(
+    "--rater",
+    default=None,
+    help="REQUIRED. Who is setting importance, e.g. 'claude-opus-5'. "
+    "Importance is rater-relative and a score with no rater is not comparable.",
+)
 @click.pass_context
-def store(ctx, content, mem_type, tags, importance, source):
+def store(ctx, content, mem_type, tags, importance, source, rater):
     """Store a new memory. Use '-' to read from stdin."""
     if content == "-":
         content = click.get_text_stream("stdin").read().strip()
@@ -470,6 +519,8 @@ def store(ctx, content, mem_type, tags, importance, source):
         params["importance"] = importance
     if source:
         params["source"] = source
+    if rater:
+        params["rater"] = rater
 
     response = run_tool(ctx, "memory_store", params)
 
@@ -490,8 +541,13 @@ def store(ctx, content, mem_type, tags, importance, source):
 @click.option("--type", "mem_type", default=None, help="New memory type")
 @click.option("--importance", default=None, type=float, help="New importance (0.0-1.0)")
 @click.option("--tags", default=None, help="New tags (comma-separated, replaces existing)")
+@click.option(
+    "--rater",
+    default=None,
+    help="Required only with --importance. Who is producing the new score.",
+)
 @click.pass_context
-def update(ctx, id, content, mem_type, importance, tags):
+def update(ctx, id, content, mem_type, importance, tags, rater):
     """Update a memory's content or metadata."""
     params = {"id": id}
     changed = []
@@ -507,6 +563,8 @@ def update(ctx, id, content, mem_type, importance, tags):
     if tags is not None:
         params["tags"] = split_tags(tags)
         changed.append("tags")
+    if rater:
+        params["rater"] = rater
 
     if not changed:
         click.echo("Error: Provide at least one of --content, --type, --importance, --tags", err=True)

@@ -35,6 +35,12 @@ class RelType(str, enum.Enum):
     DESCRIBES = "describes"
 
 
+# Reserved rater for scores produced by `score_importance`'s heuristic rather
+# than by a model.  A heuristic score and a model score are not comparable, so
+# the heuristic gets named as the rater it is.  See issue #8.
+AUTO_RATER = "auto:heuristic"
+
+
 class Memory(BaseModel):
     id: str
     content: str
@@ -49,6 +55,13 @@ class Memory(BaseModel):
     last_accessed: datetime
     source: Optional[str] = None
     conversation_id: Optional[str] = None
+    # Who set `importance`, and when.  Importance is not an absolute quantity —
+    # different models score the same memory differently — so a score is only
+    # comparable to another score from the same rater.  NULL means the row
+    # predates rater tracking; it is a closed set, because `rater` is mandatory
+    # on every write path from here on.  See issue #8.
+    rater: Optional[str] = None
+    rated_at: Optional[datetime] = None
     tags: list[str] = Field(default_factory=list)
 
 

@@ -177,6 +177,8 @@ class SurrealStorage:
                 last_accessed = $last_accessed,
                 source = $source,
                 conversation_id = $conversation_id,
+                rater = $rater,
+                rated_at = $rated_at,
                 tags = $tags,
                 embedding = $embedding
             """,
@@ -194,6 +196,8 @@ class SurrealStorage:
                 "last_accessed": memory.last_accessed,
                 "source": memory.source,
                 "conversation_id": memory.conversation_id,
+                "rater": memory.rater,
+                "rated_at": memory.rated_at,
                 "tags": memory.tags,
                 "embedding": embedding,
             },
@@ -264,6 +268,7 @@ class SurrealStorage:
         time_range: tuple[datetime, datetime] | None = None,
         importance_min: float | None = None,
         importance_max: float | None = None,
+        rater_not: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Memory]:
@@ -299,6 +304,12 @@ class SurrealStorage:
         if importance_max is not None:
             conditions.append("importance <= $imp_max")
             params["imp_max"] = importance_max
+        if rater_not is not None:
+            # The NONE branch is not optional — see the same condition in
+            # surreal_server_storage.  A pre-#8 row has no rater and must be a
+            # candidate for every model.
+            conditions.append("(rater IS NONE OR rater != $rater_not)")
+            params["rater_not"] = rater_not
 
         where = " AND ".join(conditions) if conditions else "true"
         params["lim"] = limit
@@ -989,6 +1000,8 @@ class SurrealStorage:
             last_accessed=self._parse_dt(row["last_accessed"]),
             source=row.get("source"),
             conversation_id=row.get("conversation_id"),
+            rater=row.get("rater"),
+            rated_at=(self._parse_dt(row["rated_at"]) if row.get("rated_at") else None),
             tags=row.get("tags", []),
         )
 
