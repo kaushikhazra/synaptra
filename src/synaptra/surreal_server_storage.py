@@ -35,6 +35,7 @@ from .surreal_storage import (
     _extract_id,
     _rid,
     _to_iso,
+    validate_edge_endpoints,
 )
 
 from surrealdb import AsyncSurreal, RecordID
@@ -104,7 +105,8 @@ def _build_walk_sql(max_depth: int) -> str:
     ``memory:<id>`` record references.
 
     Returns rows with keys:
-    ``{neighbor_id, depth, rel_strength, current_stability, state}``
+    ``{neighbor_id, depth, rel_strength, current_stability, state,
+    last_accessed, memory_type}``
     """
     lines: list[str] = []
 
@@ -127,7 +129,10 @@ def _build_walk_sql(max_depth: int) -> str:
     for d in range(1, max_depth + 1):
         lines.append(
             f"LET $d{d}_tagged = (SELECT neighbor.id AS neighbor_id, strength, {d} AS depth,"
-            f" neighbor.stability AS current_stability, 'active' AS state FROM $d{d}_raw);"
+            f" neighbor.stability AS current_stability,"
+            f" neighbor.last_accessed AS last_accessed,"
+            f" neighbor.memory_type AS memory_type,"
+            f" 'active' AS state FROM $d{d}_raw);"
         )
 
     # Combine all tagged layers into $all
@@ -142,8 +147,14 @@ def _build_walk_sql(max_depth: int) -> str:
         " math::min(depth) AS depth,"
         " math::max(strength) AS rel_strength,"
         " math::max(current_stability) AS current_stability,"
+        " memory_type,"
+        " last_accessed,"
         " 'active' AS state"
-        " FROM $all GROUP BY neighbor_id;"
+        # memory_type and last_accessed are properties of the neighbour record,
+        # so they are constant within a neighbor_id group.  Grouping by them is
+        # how they become selectable without an aggregate; it cannot split a
+        # group, because the same node cannot carry two values.
+        " FROM $all GROUP BY neighbor_id, memory_type, last_accessed;"
     )
     lines.append("RETURN $deduped;")
 
@@ -354,6 +365,8 @@ class SurrealServerStorage:
             last_accessed=self._parse_dt(row["last_accessed"]),
             source=row.get("source"),
             conversation_id=row.get("conversation_id"),
+            rater=row.get("rater"),
+            rated_at=(self._parse_dt(row["rated_at"]) if row.get("rated_at") else None),
             tags=row.get("tags", []),
         )
 
@@ -386,6 +399,8 @@ class SurrealServerStorage:
                 last_accessed = $last_accessed,
                 source = $source,
                 conversation_id = $conversation_id,
+                rater = $rater,
+                rated_at = $rated_at,
                 tags = $tags,
                 embedding = $embedding
             """,
@@ -403,6 +418,8 @@ class SurrealServerStorage:
                 "last_accessed": memory.last_accessed,
                 "source": memory.source,
                 "conversation_id": memory.conversation_id,
+                "rater": memory.rater,
+                "rated_at": memory.rated_at,
                 "tags": memory.tags,
                 "embedding": embedding,
             },
@@ -468,6 +485,7 @@ class SurrealServerStorage:
         time_range: tuple[datetime, datetime] | None = None,
         importance_min: float | None = None,
         importance_max: float | None = None,
+        rater_not: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Memory]:
@@ -497,6 +515,13 @@ class SurrealServerStorage:
         if importance_max is not None:
             conditions.append("importance <= $imp_max")
             params["imp_max"] = importance_max
+        if rater_not is not None:
+            # The NONE branch is not optional.  A pre-#8 row has no rater, so it
+            # differs from every model and must be a candidate; relying on
+            # `rater != $x` alone to cover unset fields is how this returns an
+            # empty list against a store where every row qualifies.
+            conditions.append("(rater IS NONE OR rater != $rater_not)")
+            params["rater_not"] = rater_not
 
         where = " AND ".join(conditions) if conditions else "true"
         params["lim"] = limit
@@ -740,6 +765,10 @@ class SurrealServerStorage:
     # ──────────────────────────────────────────────────────────────────────────
 
     async def insert_relationship(self, rel: Relationship) -> None:
+        # Single chokepoint — see validate_edge_endpoints.  Covers the MCP
+        # path AND consolidation / _auto_link / _contradiction_check.
+        await validate_edge_endpoints(self, rel)
+
         table = REL_TABLES[rel.rel_type.value]
         result = await self._query(
             f"""LET $from = type::thing('memory', $src);
@@ -1012,12 +1041,26 @@ class SurrealServerStorage:
             if state != "active":
                 continue
             depth = int(r.get("depth") or 0)
+            # Enrichment for the boost damping.  A row that cannot be parsed
+            # leaves last_accessed None, which makes the caller skip the boost
+            # entirely -- the safe direction.
+            raw_last_accessed = r.get("last_accessed")
+            try:
+                last_accessed = (
+                    self._parse_dt(raw_last_accessed)
+                    if raw_last_accessed is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                last_accessed = None
             row = SpreadingActivationRow(
                 neighbor_id=neighbor_id,
                 depth=depth,
                 rel_strength=float(r.get("rel_strength") or 0.0),
                 current_stability=float(r.get("current_stability") or 0.0),
                 state=state,
+                last_accessed=last_accessed,
+                memory_type=str(r.get("memory_type") or ""),
             )
             # Safety: keep shallowest depth per neighbor
             existing = best.get(neighbor_id)
@@ -1199,45 +1242,35 @@ class SurrealServerStorage:
         return (items[:50], true_count)
 
     async def get_orphan_unconnected(self) -> tuple[list[dict], int]:
-        _EDGE_IDS = """array::distinct(array::flatten([
-            (SELECT VALUE in  FROM causes),
-            (SELECT VALUE out FROM causes),
-            (SELECT VALUE in  FROM follows),
-            (SELECT VALUE out FROM follows),
-            (SELECT VALUE in  FROM contradicts),
-            (SELECT VALUE out FROM contradicts),
-            (SELECT VALUE in  FROM supports),
-            (SELECT VALUE out FROM supports),
-            (SELECT VALUE in  FROM relates_to),
-            (SELECT VALUE out FROM relates_to),
-            (SELECT VALUE in  FROM supersedes),
-            (SELECT VALUE out FROM supersedes),
-            (SELECT VALUE in  FROM part_of),
-            (SELECT VALUE out FROM part_of),
-            (SELECT VALUE in  FROM describes),
-            (SELECT VALUE out FROM describes)
-        ]))"""
+        # _EDGE_IDS is a CORRELATED SUBQUERY: placed in WHERE, SurrealDB does not
+        # hoist it, so those 16 SELECTs plus the flatten/distinct were re-evaluated
+        # once PER CANDIDATE ROW.  At ~2600 active memories against ~1800 endpoints
+        # that never finished — memory_health hung past 300 s and was unusable.
+        #
+        # Collect the endpoint set ONCE, then filter.  Measured upstream on the
+        # live store: 0.67 s total, against >120 s that never completed.
+        edge_ids: set[str] = set()
+        for rel in REL_TABLES.values():
+            for side in ("in", "out"):
+                rows = await self._query(f"SELECT VALUE {side} FROM {rel}")
+                if isinstance(rows, list):
+                    edge_ids.update(str(r) for r in rows if r is not None)
 
-        count_result = await self._query(
-            f"SELECT count() AS cnt FROM memory "
-            f"WHERE state = 'active' AND id NOT IN {_EDGE_IDS} GROUP ALL"
+        list_result = await self._query(
+            "SELECT id, string::slice(content, 0, 120) AS content_preview, "
+            "memory_type, tags, created_at "
+            "FROM memory WHERE state = 'active' "
+            "ORDER BY created_at ASC"
         )
-        count_rows = self._rows(count_result)
-        if count_rows and isinstance(count_rows[0], dict):
-            true_count = count_rows[0].get("cnt", 0)
-        else:
-            true_count = 0
-
+        unconnected = [
+            r
+            for r in self._rows(list_result)
+            if isinstance(r, dict) and "id" in r and str(r["id"]) not in edge_ids
+        ]
+        true_count = len(unconnected)
         if true_count == 0:
             return ([], 0)
 
-        list_result = await self._query(
-            f"SELECT id, string::slice(content, 0, 120) AS content_preview, "
-            f"memory_type, tags, created_at "
-            f"FROM memory "
-            f"WHERE state = 'active' AND id NOT IN {_EDGE_IDS} "
-            f"ORDER BY created_at ASC LIMIT 51"
-        )
         items = [
             {
                 "id": _extract_id(r["id"]),
@@ -1246,10 +1279,9 @@ class SurrealServerStorage:
                 "tags": r.get("tags") or [],
                 "created_at": self._parse_dt(r["created_at"]).isoformat(),
             }
-            for r in self._rows(list_result)
-            if isinstance(r, dict) and "id" in r
+            for r in unconnected[:50]
         ]
-        return (items[:50], true_count)
+        return (items, true_count)
 
     async def get_tag_frequencies(self) -> list[list[str]]:
         result = await self._query("SELECT tags FROM memory WHERE state = 'active'")

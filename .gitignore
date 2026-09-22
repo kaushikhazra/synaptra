@@ -32,6 +32,7 @@ htmlcov/
 temp/
 temp_*
 *_temp.*
+.tmp/
 
 # Config overrides
 config.yaml

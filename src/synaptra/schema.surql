@@ -18,6 +18,11 @@ DEFINE FIELD IF NOT EXISTS updated_at      ON memory TYPE datetime;
 DEFINE FIELD IF NOT EXISTS last_accessed   ON memory TYPE datetime;
 DEFINE FIELD IF NOT EXISTS source          ON memory TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS conversation_id ON memory TYPE option<string>;
+-- Who set `importance`, and when.  Importance is rater-relative: different
+-- models score the same memory differently, so a score is only comparable to
+-- another from the same rater.  NULL means the row predates rater tracking.
+DEFINE FIELD IF NOT EXISTS rater           ON memory TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS rated_at        ON memory TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS tags            ON memory TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS embedding       ON memory TYPE option<array<float>>;
 

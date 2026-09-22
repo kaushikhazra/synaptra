@@ -60,11 +60,50 @@ def compute_spreading_boost(
     return min(boost, max_boost)
 
 
-def apply_spreading_boost(stability: float, boost: float) -> float:
+def apply_spreading_boost(
+    stability: float,
+    boost: float,
+    retrievability: float,
+    ceiling: float | None = None,
+) -> float:
     """Apply spreading activation boost to a neighbor's stability.
-    S_new = S_old * (1 + boost)
+
+    S_new = min(S_old * (1 + boost * (1 - R)), max(ceiling, S_old))
+
+    Two guards.  BOTH are required — that is the non-obvious part.
+
+    ``retrievability`` mirrors :func:`reinforce`.  A neighbour that is already
+    fully retrievable has nothing to consolidate, so it gains nothing — exactly
+    as a *retrieved* memory at R = 1.0 gains nothing.  Without this term the
+    boost is unconditional and compounds on every recall forever: the defect
+    that took live stability values to 5.4e25 while the memories actually being
+    retrieved gained zero.
+
+    ``ceiling`` is NOT merely defensive, and it is tempting to assume it is.
+    The R term looks self-limiting — growth in S drives R toward 1.0, which
+    drives the boost toward 0 — but a spreading boost does not update the
+    neighbour's ``last_accessed``, so elapsed time keeps growing too and pushes
+    R back down.  The two race, and elapsed wins slowly.  Measured over n
+    recalls at boost 0.3, S converges on ``n**2 / 60``:
+
+        n=100 -> 175      n=500 -> 4.1e3      n=2000 -> 6.7e4
+
+    So the R term reduces the growth order from exponential to quadratic — at
+    n=2000 that is 1.1e229 down to 6.7e4 — and quadratic is still unbounded.
+    The ceiling is what actually bounds it, and the multiplier is chosen to
+    preserve the decay class rather than to be generous: at 10x a type's
+    initial stability a semantic memory halves at ~2.4 years, where at 100x it
+    would take ~24 and stop being mortal at all.
+
+    Applied as ``max(ceiling, stability)``, so it caps *growth* and can never
+    shrink a memory that legitimately reinforced its way above it — a boost
+    must never be negative.
     """
-    return stability * (1.0 + boost)
+    r_clamped = max(0.0, min(1.0, retrievability))
+    new_stability = stability * (1.0 + boost * (1.0 - r_clamped))
+    if ceiling is not None:
+        new_stability = min(new_stability, max(ceiling, stability))
+    return new_stability
 
 
 def classify_decay_state(retrievability: float, healthy_threshold: float = 0.5, fading_threshold: float = 0.2) -> str:

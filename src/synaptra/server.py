@@ -15,8 +15,56 @@ from mcp.server.fastmcp import FastMCP
 
 from .engine import MemoryEngine
 
+
+class StrictArgumentFastMCP(FastMCP):
+    """FastMCP that rejects unknown argument names instead of discarding them.
+
+    The SDK builds each tool's argument model with Pydantic's default
+    ``extra="ignore"`` and registers the dispatch handler with
+    ``validate_input=False``. A misnamed *optional* argument is therefore
+    dropped before the tool body runs and the call still reports success. A
+    misnamed *required* argument errors only incidentally, because the required
+    field then goes missing -- so the failure mode is invisible exactly where it
+    is most likely.
+    """
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        tool = self._tool_manager.get_tool(name)
+        if tool is not None:
+            declared = set(tool.parameters.get("properties", {}))
+            # Underscore-prefixed keys are reserved by the MCP spec (``_meta``
+            # and friends) and belong to the transport, not to the tool. They
+            # are not the caller's typo, and rejecting them would fail every
+            # call to every tool rather than catching a misnamed argument.
+            supplied = {k for k in arguments if not k.startswith("_")}
+            unknown = sorted(supplied - declared)
+            if unknown:
+                raise ValueError(
+                    f"Unknown argument(s) for {name!r}: {', '.join(unknown)}. "
+                    f"Accepted arguments: {', '.join(sorted(declared))}."
+                )
+        return await super().call_tool(name, arguments)
+
+
+def _resolve_type_alias(type_: str | None, memory_type: str | None) -> str | None:
+    """Resolve the ``type`` / ``memory_type`` pair to a single value.
+
+    The stored field, the response field and the CLI flag are all
+    ``memory_type``, while the tool argument is ``type``. A caller reading a
+    response and passing the field name straight back is making the natural
+    move, so ``memory_type`` is accepted here as an alias rather than treated
+    as a mistake.
+    """
+    if type_ is not None and memory_type is not None and type_ != memory_type:
+        raise ValueError(
+            f"Conflicting type arguments: type={type_!r} and "
+            f"memory_type={memory_type!r}. Pass one."
+        )
+    return type_ if type_ is not None else memory_type
+
+
 # Create FastMCP server with Streamable HTTP
-mcp = FastMCP(
+mcp = StrictArgumentFastMCP(
     "synaptra",
     streamable_http_path="/mcp",
     json_response=False,
@@ -78,6 +126,19 @@ def _get_engine() -> MemoryEngine:
         return _engine
 
 
+async def _get_engine_ready() -> MemoryEngine:
+    """Return the engine with its config overrides loaded.
+
+    `_get_engine` is synchronous, and on an async backend the overrides can only
+    be read by awaiting storage. Without this, every config read silently serves
+    the YAML default. The loader is idempotent, so this is a boolean check after
+    the first call.
+    """
+    engine = _get_engine()
+    await engine.load_config_overrides()
+    return engine
+
+
 def _response(data: Any = None, elapsed_ms: float = 0, **meta_extra) -> str:
     """Build standard tool response as JSON string."""
     result = {
@@ -104,18 +165,26 @@ async def memory_store(
     tags: list[str] | None = None,
     source: str | None = None,
     conversation_id: str | None = None,
+    memory_type: str | None = None,
+    rater: str | None = None,
 ) -> str:
-    """Store a new memory with automatic classification and importance scoring. Agent can override type and importance."""
+    """Store a new memory with automatic classification and importance scoring. Agent can override type and importance. `memory_type` is accepted as an alias for `type`.
+
+    `rater` is REQUIRED — the identifier of the model calling this tool, e.g.
+    'claude-opus-5'. Importance is rater-relative: different models score the
+    same content differently, so a score with no rater cannot be compared to
+    any other score."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         mem = await engine.store_memory(
             content=content,
-            memory_type=type,
+            memory_type=_resolve_type_alias(type, memory_type),
             importance=importance,
             tags=tags,
             source=source,
             conversation_id=conversation_id,
+            rater=rater,
         )
         return _response(mem.model_dump(), (time.time() - start) * 1000)
     except Exception as e:
@@ -132,7 +201,7 @@ async def memory_recall(
 ) -> str:
     """Multi-strategy retrieval: semantic + keyword + graph + temporal, fused with RRF, decay-weighted. Returns ranked memories with provenance."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         tr = None
         if time_range:
@@ -159,7 +228,7 @@ async def memory_recall(
 async def memory_get(id: str) -> str:
     """Get a specific memory by ID with full metadata, relationships, version history, and on-the-fly retrievability. Read-only."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         result = await engine.get_memory(id)
         if result is None:
@@ -176,17 +245,24 @@ async def memory_update(
     type: str | None = None,
     importance: float | None = None,
     tags: list[str] | None = None,
+    memory_type: str | None = None,
+    rater: str | None = None,
 ) -> str:
-    """Update a memory's content or metadata. Creates a version snapshot, re-embeds if content changed, reinforces stability."""
+    """Update a memory's content or metadata. Creates a version snapshot, re-embeds if content changed, reinforces stability. `memory_type` is accepted as an alias for `type`.
+
+    `rater` is required ONLY when changing `importance` — pass the identifier of
+    the model producing the new score. An update to content, type or tags leaves
+    the existing rater untouched, because the score did not change."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         mem = await engine.update_memory(
             memory_id=id,
             content=content,
-            memory_type=type,
+            memory_type=_resolve_type_alias(type, memory_type),
             importance=importance,
             tags=tags,
+            rater=rater,
         )
         if mem is None:
             return _error(f"Memory {id} not found")
@@ -204,7 +280,7 @@ async def memory_relate(
 ) -> str:
     """Create a typed relationship between two memories. Default strength=1.0."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         rel = await engine.create_relationship(source_id, target_id, rel_type, strength)
         return _response(rel.model_dump(), (time.time() - start) * 1000)
@@ -220,7 +296,7 @@ async def memory_related(
 ) -> str:
     """Get related memories via graph traversal. Read-only, no side effects."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         results = await engine.get_related(id, depth=depth, rel_types=rel_types)
         return _response(results, (time.time() - start) * 1000)
@@ -232,7 +308,7 @@ async def memory_related(
 async def memory_unrelate(source_id: str, target_id: str, rel_type: str) -> str:
     """Remove a relationship between two memories."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         success = await engine.delete_relationship(source_id, target_id, rel_type)
         return _response({"deleted": success}, (time.time() - start) * 1000)
@@ -254,7 +330,7 @@ async def memory_list(
 ) -> str:
     """Browse memories with filters and full-text search."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         tr = None
         if time_range:
@@ -282,6 +358,57 @@ async def memory_list(
 
 
 @mcp.tool()
+async def memory_rerate_candidates(
+    model: str,
+    type: str | None = None,
+    state: str | None = "active",
+    limit: int = 50,
+    offset: int = 0,
+) -> str:
+    """List memories whose importance was set by a rater OTHER than `model` — the re-rating candidates.
+
+    Importance is rater-relative: different models score the same content
+    differently, so a score set by another rater is not comparable to one this
+    model would give. Memories with NO rater are included — they predate rater
+    tracking, so they differ from every model.
+
+    Read-only. Nothing is re-scored, and access counts are not touched — looking
+    for stale scores must not itself alter decay state.
+    """
+    start = time.time()
+    engine = await _get_engine_ready()
+    try:
+        memories = await engine.storage.list_memories(
+            memory_type=type,
+            state=state,
+            rater_not=model,
+            limit=limit,
+            offset=offset,
+        )
+        return _response(
+            {
+                "model": model,
+                "candidates": [
+                    {
+                        "id": m.id,
+                        "memory_type": m.memory_type.value,
+                        "importance": m.importance,
+                        "rater": m.rater,
+                        "rated_at": m.rated_at.isoformat() if m.rated_at else None,
+                        "first_line": m.content.splitlines()[0][:200]
+                        if m.content
+                        else "",
+                    }
+                    for m in memories
+                ],
+            },
+            (time.time() - start) * 1000,
+        )
+    except Exception as e:
+        return _error(str(e))
+
+
+@mcp.tool()
 async def memory_archive(
     id: str | None = None,
     ids: list[str] | None = None,
@@ -289,7 +416,7 @@ async def memory_archive(
 ) -> str:
     """Archive memory/memories. Supports single ID, bulk IDs, or threshold-based."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if id:
             success = await engine.archive_memory(id)
@@ -314,7 +441,7 @@ async def memory_restore(
 ) -> str:
     """Restore archived memory/memories. Resets decay."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if id:
             mem = await engine.restore_memory(id)
@@ -341,7 +468,7 @@ async def memory_delete(
 ) -> str:
     """Permanently delete memory/memories. Cascades: relationships, versions, embeddings. Requires confirm=true."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if not confirm:
             return _error("confirm must be true for permanent deletion")
@@ -365,7 +492,7 @@ async def memory_delete(
 async def memory_stats() -> str:
     """System statistics: counts by type/state, average decay by type, consolidation history, storage usage."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         stats = await engine.get_stats()
         return _response(stats, (time.time() - start) * 1000)
@@ -377,7 +504,7 @@ async def memory_stats() -> str:
 async def memory_consolidate(dry_run: bool = False) -> str:
     """Trigger consolidation pipeline: decay update, promotion, archival, clustering, merging. Supports dry_run."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         actions = await engine.consolidate(dry_run=dry_run)
         return _response(
@@ -399,7 +526,7 @@ async def memory_self(
     Supports optional tags filter for facet categories (e.g., 'origin', 'values', 'capability').
     """
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         results = await engine.recall(
             query=query,
@@ -435,7 +562,7 @@ async def memory_who(
     if not person_name:
         return _error("person name is required")
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         # Build tag filter: person:{name} (lowercase)
         person_tag = f"person:{person_name}"
@@ -491,7 +618,7 @@ async def memory_health() -> str:
     Read-only — no side effects.
     """
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         report = await engine.get_health()
 
@@ -538,12 +665,15 @@ async def memory_config(
 ) -> str:
     """View or update configuration. No params = return all. Key only = read. Key + value = write."""
     start = time.time()
-    engine = _get_engine()
+    engine = await _get_engine_ready()
     try:
         if key and value is not None:
-            engine.set_config(key, value)
+            await engine.set_config_async(key, value)
+            # Report what is now stored, never the argument that came in. A
+            # confirmation built from the request cannot detect a dropped write.
+            stored = engine.get_config(key).get("value")
             return _response(
-                {"key": key, "value": value, "action": "set"},
+                {"key": key, "value": stored, "action": "set"},
                 (time.time() - start) * 1000,
             )
         elif key:

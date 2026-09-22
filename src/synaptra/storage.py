@@ -96,15 +96,18 @@ class Storage:
         self._conn.execute(
             """INSERT INTO memory (id, content, memory_type, state, importance,
                stability, retrievability, access_count, created_at, updated_at,
-               last_accessed, source, conversation_id, tags, embedding)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               last_accessed, source, conversation_id, rater, rated_at, tags,
+               embedding)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 memory.id, memory.content, memory.memory_type.value,
                 memory.state.value, memory.importance, memory.stability,
                 memory.retrievability, memory.access_count,
                 memory.created_at.isoformat(), memory.updated_at.isoformat(),
                 memory.last_accessed.isoformat(), memory.source,
-                memory.conversation_id, tags_json, embedding_bytes,
+                memory.conversation_id, memory.rater,
+                memory.rated_at.isoformat() if memory.rated_at else None,
+                tags_json, embedding_bytes,
             ),
         )
         # FTS5 sync
@@ -183,6 +186,7 @@ class Storage:
         time_range: tuple[datetime, datetime] | None = None,
         importance_min: float | None = None,
         importance_max: float | None = None,
+        rater_not: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Memory]:
@@ -220,6 +224,14 @@ class Storage:
         if importance_max is not None:
             conditions.append("memory.importance <= ?")
             params.append(importance_max)
+
+        if rater_not is not None:
+            # IS NULL is not optional here.  A pre-#8 row has no rater, so it
+            # differs from every model — and `rater != ?` alone would drop all
+            # of them under SQL's three-valued logic, returning an empty list
+            # against a store where every row is a candidate.
+            conditions.append("(memory.rater IS NULL OR memory.rater != ?)")
+            params.append(rater_not)
 
         where = " AND ".join(conditions) if conditions else "1=1"
         params.extend([limit, offset])
@@ -493,6 +505,10 @@ class Storage:
             last_accessed=datetime.fromisoformat(row["last_accessed"]),
             source=row["source"],
             conversation_id=row["conversation_id"],
+            rater=row["rater"],
+            rated_at=(
+                datetime.fromisoformat(row["rated_at"]) if row["rated_at"] else None
+            ),
             tags=json.loads(row["tags"]) if row["tags"] else [],
         )
 

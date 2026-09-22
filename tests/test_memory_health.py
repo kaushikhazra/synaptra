@@ -349,15 +349,17 @@ class TestGetHealthIntegration:
     async def test_orphan_no_tags_detected(self, engine):
         """Memory stored without tags appears in orphans.no_tags (US-3.1)."""
         # Store a memory without tags
-        await engine.store_memory("Untagged test memory for health check", tags=[])
+        await engine.store_memory(
+            "Untagged test memory for health check", tags=[], rater="test:pytest"
+        )
         report = await engine.get_health()
         assert report["orphans"]["no_tags_count"] >= 1
 
     async def test_orphan_no_tags_count_correct(self, engine):
         """no_tags_count matches the actual number of untagged active memories (US-3.1)."""
-        await engine.store_memory("Untagged A", tags=[])
-        await engine.store_memory("Untagged B", tags=[])
-        await engine.store_memory("Tagged C", tags=["mytag"])
+        await engine.store_memory("Untagged A", tags=[], rater="test:pytest")
+        await engine.store_memory("Untagged B", tags=[], rater="test:pytest")
+        await engine.store_memory("Tagged C", tags=["mytag"], rater="test:pytest")
         report = await engine.get_health()
         assert report["orphans"]["no_tags_count"] == 2
 
@@ -366,6 +368,7 @@ class TestGetHealthIntegration:
         await engine.store_memory(
             "Isolated memory with unique content zzz999",
             tags=["isolated"],
+            rater="test:pytest",
         )
         report = await engine.get_health()
         # The store is fresh — the stored memory is the only one, so it cannot
@@ -435,9 +438,11 @@ class TestGetHealthIntegration:
 
     async def test_tag_coverage_untagged_matches_orphans_no_tags(self, engine):
         """gaps.tag_coverage.untagged_count equals orphans.no_tags_count (US-4.2)."""
-        await engine.store_memory("Untagged first", tags=[])
-        await engine.store_memory("Untagged second", tags=[])
-        await engine.store_memory("Tagged with sometag", tags=["sometag"])
+        await engine.store_memory("Untagged first", tags=[], rater="test:pytest")
+        await engine.store_memory("Untagged second", tags=[], rater="test:pytest")
+        await engine.store_memory(
+            "Tagged with sometag", tags=["sometag"], rater="test:pytest"
+        )
         report = await engine.get_health()
         assert (
             report["gaps"]["tag_coverage"]["untagged_count"]

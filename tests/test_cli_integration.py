@@ -84,7 +84,7 @@ def server():
 def test_store_and_list(server):
     """Store a memory, then verify it appears in list."""
     # Store
-    r = run_cli("store", "Integration test memory", "--type", "semantic", "--tags", "test,cli")
+    r = run_cli("store", "Integration test memory", "--type", "semantic", "--tags", "test,cli", "--rater", "test:pytest")
     assert r.returncode == 0, f"store failed: {r.stderr}"
     assert "Stored" in r.stdout
 
@@ -97,7 +97,7 @@ def test_store_and_list(server):
 def test_store_and_get_json(server):
     """Store, then get with --json and verify structure."""
     # Store with --json to get the ID
-    r = run_cli("--json", "store", "JSON test memory")
+    r = run_cli("--json", "store", "JSON test memory", "--rater", "test:pytest")
     assert r.returncode == 0, f"store failed: {r.stderr}"
     data = json.loads(r.stdout)
     assert data["success"] is True
@@ -129,7 +129,7 @@ def test_stats(server):
 def test_update_and_delete(server):
     """Store → update → delete lifecycle."""
     # Store
-    r = run_cli("--json", "store", "Lifecycle test")
+    r = run_cli("--json", "store", "Lifecycle test", "--rater", "test:pytest")
     assert r.returncode == 0
     memory_id = json.loads(r.stdout)["data"]["id"]
 
