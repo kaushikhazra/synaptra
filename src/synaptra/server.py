@@ -338,7 +338,7 @@ async def memory_list(
                 datetime.fromisoformat(time_range["start"]),
                 datetime.fromisoformat(time_range["end"]),
             )
-        memories = await engine.storage.list_memories(
+        memories = await engine.list_memories(
             search=search,
             memory_type=type,
             state=state,

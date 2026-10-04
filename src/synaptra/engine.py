@@ -7,7 +7,6 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Optional
 
 from . import decay as decay_mod
 from . import retrieval as retrieval_mod
@@ -17,7 +16,6 @@ from .config import Config
 from .embeddings import EmbeddingService
 from .models import (
     AUTO_RATER,
-    ContradictionInfo,
     Memory,
     MemoryGetResponse,
     MemoryState,
@@ -27,8 +25,6 @@ from .models import (
     Relationship,
     RelationshipInfo,
     RecallResult,
-    StatsResponse,
-    ToolResponse,
 )
 from .protocols import StorageProtocol
 from .surreal_storage import SurrealStorage
@@ -53,7 +49,14 @@ def _require_rater(rater: str | None) -> None:
 
 # --- Health report private helpers (module-level, not class methods) ---
 
-_ALL_MEMORY_TYPES = ["working", "episodic", "semantic", "procedural", "identity", "person"]
+_ALL_MEMORY_TYPES = [
+    "working",
+    "episodic",
+    "semantic",
+    "procedural",
+    "identity",
+    "person",
+]
 
 
 def _build_totals(counts_raw: dict) -> dict:
@@ -62,7 +65,9 @@ def _build_totals(counts_raw: dict) -> dict:
     Ensures all 6 memory types are always present, defaulting to 0 (US-1.1).
     counts_raw keys are (memory_type_str, state_str) tuples.
     """
-    by_type: dict[str, dict[str, int]] = {t: {"active": 0, "archived": 0} for t in _ALL_MEMORY_TYPES}
+    by_type: dict[str, dict[str, int]] = {
+        t: {"active": 0, "archived": 0} for t in _ALL_MEMORY_TYPES
+    }
 
     for (mem_type, state), cnt in counts_raw.items():
         if mem_type in by_type and state in ("active", "archived"):
@@ -88,25 +93,31 @@ def _build_decay_report(active_memories: list[dict], now: datetime) -> dict:
     IDENTITY_TYPE = "identity"
 
     at_risk_all: list[dict] = []
-    by_type_buckets: dict[str, dict[str, list]] = defaultdict(lambda: {"imp": [], "stab": [], "ret": []})
+    by_type_buckets: dict[str, dict[str, list]] = defaultdict(
+        lambda: {"imp": [], "stab": [], "ret": []}
+    )
 
     for mem in active_memories:
-        r = decay_mod.compute_retrievability(mem["last_accessed"], mem["stability"], now)
+        r = decay_mod.compute_retrievability(
+            mem["last_accessed"], mem["stability"], now
+        )
         t = mem["memory_type"]
         by_type_buckets[t]["imp"].append(mem["importance"])
         by_type_buckets[t]["stab"].append(mem["stability"])
         by_type_buckets[t]["ret"].append(r)
 
         if r < AT_RISK_THRESHOLD and t != IDENTITY_TYPE:
-            at_risk_all.append({
-                "id": mem["id"],
-                "content_preview": mem["content_preview"],
-                "memory_type": t,
-                "retrievability": round(r, 4),
-                "last_accessed": mem["last_accessed"].isoformat(),
-                "stability": mem["stability"],
-                "tags": mem["tags"],
-            })
+            at_risk_all.append(
+                {
+                    "id": mem["id"],
+                    "content_preview": mem["content_preview"],
+                    "memory_type": t,
+                    "retrievability": round(r, 4),
+                    "last_accessed": mem["last_accessed"].isoformat(),
+                    "stability": mem["stability"],
+                    "tags": mem["tags"],
+                }
+            )
 
     at_risk_all.sort(key=lambda x: x["retrievability"])
 
@@ -159,11 +170,13 @@ def _build_gaps(totals: dict, tag_rows: list[list[str]], untagged_count: int) ->
             continue  # already in empty_types
         pct = (active / total_active * 100) if total_active > 0 else 0.0
         if pct < SPARSE_THRESHOLD_PCT:
-            sparse_types.append({
-                "type": mem_type,
-                "active_count": active,
-                "pct_of_active": round(pct, 1),
-            })
+            sparse_types.append(
+                {
+                    "type": mem_type,
+                    "active_count": active,
+                    "pct_of_active": round(pct, 1),
+                }
+            )
 
     # Flatten tag arrays and count (D7) — no SurrealDB aggregation complexity
     counter = Counter(tag for tags in tag_rows for tag in tags if tag)
@@ -285,7 +298,9 @@ class MemoryEngine:
 
         return memory
 
-    async def _auto_link(self, memory_id: str, embedding: list[float], now: datetime) -> None:
+    async def _auto_link(
+        self, memory_id: str, embedding: list[float], now: datetime
+    ) -> None:
         """Find similar active memories and create relates_to links."""
         threshold = self.config.get("auto_linking.similarity_threshold", 0.75)
         max_links = self.config.get("auto_linking.max_links", 5)
@@ -311,12 +326,22 @@ class MemoryEngine:
             await self.storage.insert_relationship(rel)
             linked += 1
 
-    async def _contradiction_check(self, memory_id: str, embedding: list[float], content: str, now: datetime) -> None:
+    async def _contradiction_check(
+        self, memory_id: str, embedding: list[float], content: str, now: datetime
+    ) -> None:
         """Check for contradictions with existing memories."""
         threshold = self.config.get("contradiction.similarity_threshold", 0.80)
-        negation_signals = self.config.get("contradiction.negation_signals", [
-            "not", "never", "no longer", "changed", "wrong", "actually",
-        ])
+        negation_signals = self.config.get(
+            "contradiction.negation_signals",
+            [
+                "not",
+                "never",
+                "no longer",
+                "changed",
+                "wrong",
+                "actually",
+            ],
+        )
 
         results = await self.storage.vector_search(embedding, top_k=10)
         for mid, score in results:
@@ -408,7 +433,9 @@ class MemoryEngine:
         # Re-embed if content changed
         if content_changed:
             new_embedding = self.embeddings.embed(content)
-            await self.storage.update_embedding(memory_id, new_embedding.astype(float).tolist())
+            await self.storage.update_embedding(
+                memory_id, new_embedding.astype(float).tolist()
+            )
 
         # Reinforce (or reset stability on type change)
         r = decay_mod.compute_retrievability(mem.last_accessed, mem.stability, now)
@@ -476,11 +503,29 @@ class MemoryEngine:
     ) -> list[RecallResult]:
         """Multi-strategy retrieval."""
         return await retrieval_mod.recall(
-            query, self.storage, self.embeddings, self.config,
-            type_filter=type_filter, tags=tags, time_range=time_range, limit=limit,
+            query,
+            self.storage,
+            self.embeddings,
+            self.config,
+            type_filter=type_filter,
+            tags=tags,
+            time_range=time_range,
+            limit=limit,
         )
 
     # === Get (read-only) ===
+
+    async def list_memories(self, **kwargs) -> list:
+        """List memories with on-the-fly retrievability, same as get_memory."""
+        memories = await self.storage.list_memories(**kwargs)
+        now = datetime.now(timezone.utc)
+        for mem in memories:
+            mem.retrievability = decay_mod.compute_retrievability(
+                mem.last_accessed,
+                mem.stability,
+                now,
+            )
+        return memories
 
     async def get_memory(self, memory_id: str) -> MemoryGetResponse | None:
         """Get full inspection view — memory + relationships + versions. Read-only."""
@@ -496,15 +541,23 @@ class MemoryEngine:
         rel_infos = []
         for rel in rels:
             if rel.source_id == mem.id:
-                rel_infos.append(RelationshipInfo(
-                    memory_id=rel.target_id, rel_type=rel.rel_type,
-                    strength=rel.strength, direction="outgoing",
-                ))
+                rel_infos.append(
+                    RelationshipInfo(
+                        memory_id=rel.target_id,
+                        rel_type=rel.rel_type,
+                        strength=rel.strength,
+                        direction="outgoing",
+                    )
+                )
             else:
-                rel_infos.append(RelationshipInfo(
-                    memory_id=rel.source_id, rel_type=rel.rel_type,
-                    strength=rel.strength, direction="incoming",
-                ))
+                rel_infos.append(
+                    RelationshipInfo(
+                        memory_id=rel.source_id,
+                        rel_type=rel.rel_type,
+                        strength=rel.strength,
+                        direction="incoming",
+                    )
+                )
 
         versions = await self.storage.get_versions(mem.id)
 
@@ -531,7 +584,9 @@ class MemoryEngine:
         await self.storage.insert_relationship(rel)
         return rel
 
-    async def delete_relationship(self, source_id: str, target_id: str, rel_type: str) -> bool:
+    async def delete_relationship(
+        self, source_id: str, target_id: str, rel_type: str
+    ) -> bool:
         return await self.storage.delete_relationship(source_id, target_id, rel_type)
 
     async def get_related(
@@ -559,13 +614,17 @@ class MemoryEngine:
                     if mem is None:
                         continue
                     now = datetime.now(timezone.utc)
-                    r = decay_mod.compute_retrievability(mem.last_accessed, mem.stability, now)
-                    results.append({
-                        "memory": mem.model_dump(),
-                        "relationship": rel.model_dump(),
-                        "depth": d + 1,
-                        "retrievability": r,
-                    })
+                    r = decay_mod.compute_retrievability(
+                        mem.last_accessed, mem.stability, now
+                    )
+                    results.append(
+                        {
+                            "memory": mem.model_dump(),
+                            "relationship": rel.model_dump(),
+                            "depth": d + 1,
+                            "retrievability": r,
+                        }
+                    )
                     next_frontier.append(neighbor_id)
             frontier = next_frontier
 
@@ -578,7 +637,9 @@ class MemoryEngine:
         if mem is None or mem.state == MemoryState.ARCHIVED:
             return False
         now = datetime.now(timezone.utc)
-        await self.storage.update_memory_fields(memory_id, state=MemoryState.ARCHIVED, updated_at=now)
+        await self.storage.update_memory_fields(
+            memory_id, state=MemoryState.ARCHIVED, updated_at=now
+        )
         return True
 
     async def archive_bulk(self, memory_ids: list[str]) -> int:
@@ -603,7 +664,10 @@ class MemoryEngine:
 
     async def consolidate(self, dry_run: bool = False) -> list[dict]:
         return await consolidation_mod.consolidate(
-            self.storage, self.embeddings, self.config, dry_run=dry_run,
+            self.storage,
+            self.embeddings,
+            self.config,
+            dry_run=dry_run,
         )
 
     # === Stats ===
@@ -679,7 +743,11 @@ class MemoryEngine:
         # 5. Consolidation — engine owns the None→never_run shape (D4)
         consolidation = await self.storage.get_health_consolidation_summary()
         if consolidation is None:
-            consolidation = {"never_run": True, "last_run_at": None, "last_run_summary": None}
+            consolidation = {
+                "never_run": True,
+                "last_run_at": None,
+                "last_run_summary": None,
+            }
         else:
             consolidation["never_run"] = False
 
