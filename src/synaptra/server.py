@@ -14,6 +14,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .engine import MemoryEngine
+from .time_range import parse_time_range
 
 
 class StrictArgumentFastMCP(FastMCP):
@@ -199,16 +200,15 @@ async def memory_recall(
     time_range: dict | None = None,
     limit: int | None = None,
 ) -> str:
-    """Multi-strategy retrieval: semantic + keyword + graph + temporal, fused with RRF, decay-weighted. Returns ranked memories with provenance."""
+    """Multi-strategy retrieval: semantic + keyword + graph + temporal, fused with RRF, decay-weighted. Returns ranked memories with provenance.
+
+    `time_range` is {"start": ..., "end": ...}: either may be left out. Each is an ISO 8601
+    date or datetime; a date means the whole day, so an end date includes it. A datetime with no
+    offset is read as UTC."""
     start = time.time()
     engine = await _get_engine_ready()
     try:
-        tr = None
-        if time_range:
-            tr = (
-                datetime.fromisoformat(time_range["start"]),
-                datetime.fromisoformat(time_range["end"]),
-            )
+        tr = parse_time_range(time_range)
         results = await engine.recall(
             query=query,
             type_filter=type_filter,
@@ -328,16 +328,15 @@ async def memory_list(
     limit: int = 50,
     offset: int = 0,
 ) -> str:
-    """Browse memories with filters and full-text search."""
+    """Browse memories with filters and full-text search.
+
+    `time_range` is {"start": ..., "end": ...}: either may be left out. Each is an ISO 8601
+    date or datetime; a date means the whole day, so an end date includes it. A datetime with no
+    offset is read as UTC."""
     start = time.time()
     engine = await _get_engine_ready()
     try:
-        tr = None
-        if time_range:
-            tr = (
-                datetime.fromisoformat(time_range["start"]),
-                datetime.fromisoformat(time_range["end"]),
-            )
+        tr = parse_time_range(time_range)
         memories = await engine.list_memories(
             search=search,
             memory_type=type,
