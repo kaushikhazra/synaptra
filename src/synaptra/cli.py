@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import click
 
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.client.session import ClientSession
 
 
@@ -33,7 +33,7 @@ def resolve_url(ctx: click.Context) -> str:
 
 async def _call_tool_inner(url: str, tool_name: str, params: dict) -> dict:
     """Connect to MCP server, call one tool, return parsed response."""
-    async with streamablehttp_client(url) as (read, write, _):
+    async with streamable_http_client(url) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(tool_name, params)

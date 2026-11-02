@@ -127,7 +127,7 @@ No admin elevation or pywin32 required. Uses Task Scheduler with auto-restart on
 
 ```
 synaptra/
-  server.py          Streamable HTTP MCP server (FastMCP + uvicorn)
+  server.py          Streamable HTTP MCP server (MCPServer + uvicorn)
   cli.py             CLI tool (click, connects via MCP client)
   service.py         Windows Task Scheduler service management
   engine.py          Central orchestrator
