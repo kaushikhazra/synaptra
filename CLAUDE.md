@@ -41,7 +41,7 @@ Upstream and this repo are **deliberately** different in the following places. A
 | imports | `cognitive_memory.x` | `synaptra.x` |
 | dist name | `cognitive-memory` | `synaptra` |
 | console scripts | `cognitive-memory`, … | `synaptra`, `synaptra-service`, `synaptra-cli`, plus a `cm` alias |
-| MCP self-name | — | `FastMCP("synaptra")` in `server.py` |
+| MCP self-name | — | `MCPServer("synaptra")` in `server.py` |
 | env prefix | `COGNITIVE_MEMORY_*` | `SYNAPTRA_*` |
 | data dir | `~/.cognitive-memory/` | `~/.synaptra/` |
 
@@ -54,7 +54,7 @@ Upstream and this repo are **deliberately** different in the following places. A
 ## Architecture
 
 ```
-server.py         MCP entrypoint — FastMCP, Streamable HTTP at /mcp, stateless
+server.py         MCP entrypoint — MCPServer, Streamable HTTP at /mcp, stateless
   engine.py       Orchestrator — ingestion, update, delete, retrieval, consolidation
     storage.py                  storage protocol + SQLite backend
     surreal_storage.py          SurrealDB embedded
@@ -91,7 +91,7 @@ server.py         MCP entrypoint — FastMCP, Streamable HTTP at /mcp, stateless
 
 - **Migrations are numbered and run exactly once.** ⛔ **Never add a column by editing an existing migration.** A database that already ran `001` will never see the edit, and the failure is silent. Add `002_`, `003_`. The SurrealDB schema self-heals because every field is `IF NOT EXISTS`; **SQLite does not**, and this package has public SQLite installs.
 - **Every SQLite write must maintain FTS5 sync** — insert into `memory_fts` on create, delete and re-insert on content update, delete on delete.
-- **`mcp` is currently pinned `>=1.0.0,<2.0`.** MCP 2.0 renamed `streamablehttp_client` → `streamable_http_client`. Do not move the pin without asking; it breaks fresh installs either way and the direction is a decision, not a cleanup.
+- **`mcp` is pinned `>=2.1.1,<3`** (moved from `<2.0` in 3.0.0, issue #8, Kaushik's ruling: Axiom needs mcp 2). MCP 2 renamed `FastMCP` → `MCPServer` (`mcp.server.mcpserver`) and `streamablehttp_client` → `streamable_http_client`, and moved the HTTP transport options from the constructor to `streamable_http_app()`. Another major bump is a decision, not a cleanup: ask first.
 - **Version bumps are public.** A behaviour change is a minor bump, a schema or API change is a major one. Never publish from a dirty tree.
 
 ## Development

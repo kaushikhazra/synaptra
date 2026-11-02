@@ -12,13 +12,13 @@ from pathlib import Path
 
 # We need to handle the case where mcp might not be installed
 try:
-    from mcp.client.streamable_http import streamablehttp_client
+    from mcp.client.streamable_http import streamable_http_client
     from mcp.client.session import ClientSession
     HAS_MCP = True
 except ImportError:
     HAS_MCP = False
     print("MCP SDK not installed or missing streamable_http client.")
-    print("Install with: pip install 'mcp>=1.0.0'")
+    print("Install with: pip install 'mcp>=2.1.1'")
 
 TEST_PORT = 52199
 TEST_URL = f"http://127.0.0.1:{TEST_PORT}/mcp"
@@ -73,7 +73,7 @@ async def run_mcp_tests():
 
         print("Server ready. Connecting MCP client...")
 
-        async with streamablehttp_client(TEST_URL) as (read, write, _):
+        async with streamable_http_client(TEST_URL) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
 

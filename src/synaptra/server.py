@@ -1,4 +1,4 @@
-"""MCP server — Streamable HTTP via FastMCP + uvicorn."""
+"""MCP server — Streamable HTTP via MCPServer + uvicorn."""
 
 from __future__ import annotations
 
@@ -11,14 +11,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from .engine import MemoryEngine
 from .time_range import parse_time_range
 
 
-class StrictArgumentFastMCP(FastMCP):
-    """FastMCP that rejects unknown argument names instead of discarding them.
+class UnknownArgumentError(ToolError, ValueError):
+    """A call named an argument the tool does not declare.
+
+    A ``ToolError`` so the SDK reports it to the caller as an ordinary tool
+    error, at info level, with the message intact; a ``ValueError`` so code that
+    calls the server in-process can catch it as one.
+    """
+
+
+class StrictArgumentFastMCP(MCPServer):
+    """MCPServer that rejects unknown argument names instead of discarding them.
 
     The SDK builds each tool's argument model with Pydantic's default
     ``extra="ignore"`` and registers the dispatch handler with
@@ -29,7 +39,9 @@ class StrictArgumentFastMCP(FastMCP):
     is most likely.
     """
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> Any:
         tool = self._tool_manager.get_tool(name)
         if tool is not None:
             declared = set(tool.parameters.get("properties", {}))
@@ -40,11 +52,11 @@ class StrictArgumentFastMCP(FastMCP):
             supplied = {k for k in arguments if not k.startswith("_")}
             unknown = sorted(supplied - declared)
             if unknown:
-                raise ValueError(
+                raise UnknownArgumentError(
                     f"Unknown argument(s) for {name!r}: {', '.join(unknown)}. "
                     f"Accepted arguments: {', '.join(sorted(declared))}."
                 )
-        return await super().call_tool(name, arguments)
+        return await super().call_tool(name, arguments, context)
 
 
 def _resolve_type_alias(type_: str | None, memory_type: str | None) -> str | None:
@@ -64,13 +76,9 @@ def _resolve_type_alias(type_: str | None, memory_type: str | None) -> str | Non
     return type_ if type_ is not None else memory_type
 
 
-# Create FastMCP server with Streamable HTTP
-mcp = StrictArgumentFastMCP(
-    "synaptra",
-    streamable_http_path="/mcp",
-    json_response=False,
-    stateless_http=True,
-)
+# Create the MCP server. Transport options (path, stateless) are not constructor
+# arguments in mcp 2; they are passed where the HTTP app is built, in get_app().
+mcp = StrictArgumentFastMCP("synaptra")
 
 # Engine instance — initialized on first use, guarded by lock for concurrent init
 _engine: MemoryEngine | None = None
@@ -690,7 +698,11 @@ async def memory_config(
 
 def get_app():
     """Get the Starlette ASGI app for uvicorn."""
-    return mcp.streamable_http_app()
+    return mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        json_response=False,
+        stateless_http=True,
+    )
 
 
 def main() -> None:
@@ -708,7 +720,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.transport == "stdio":
-        # stdio mode: FastMCP speaks MCP protocol over stdin/stdout.
+        # stdio mode: MCPServer speaks MCP protocol over stdin/stdout.
         # Warm EVERYTHING at process start — identical to the HTTP branch below —
         # so the first recall does zero initialization on the request path.
         # Critical for stdio: the embedding model load is a synchronous, multi-
