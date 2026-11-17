@@ -235,6 +235,8 @@ class MemoryEngine:
         the caller is the only thing that knows who is rating. See issue #8.
         """
         _require_rater(rater)
+        # Bounded wait: a "warming up" error if the model is still loading, never a silent fallback.
+        await self.embeddings.wait_ready()
         now = datetime.now(timezone.utc)
         memory_id = str(uuid.uuid4())
 
@@ -386,6 +388,8 @@ class MemoryEngine:
         """
         if importance is not None:
             _require_rater(rater)
+        if content is not None:
+            await self.embeddings.wait_ready()  # re-embedding needs the model
         mem = await self.storage.get_memory(memory_id)
         if mem is None:
             return None
@@ -502,6 +506,7 @@ class MemoryEngine:
         limit: int | None = None,
     ) -> list[RecallResult]:
         """Multi-strategy retrieval."""
+        await self.embeddings.wait_ready()  # the query is embedded
         return await retrieval_mod.recall(
             query,
             self.storage,
@@ -663,6 +668,7 @@ class MemoryEngine:
     # === Consolidation ===
 
     async def consolidate(self, dry_run: bool = False) -> list[dict]:
+        await self.embeddings.wait_ready()  # merging embeds the merged text
         return await consolidation_mod.consolidate(
             self.storage,
             self.embeddings,

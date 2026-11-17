@@ -314,17 +314,29 @@ def _assert_topk(
 
 @pytest.fixture(scope="session")
 def emb_svc() -> EmbeddingService:
-    """Load the REAL sentence-transformers model, bypassing any test-client mock.
+    """Load the REAL embedding model (fastembed), bypassing any test-client mock.
 
     test_client.py patches EmbeddingService._ensure_model at import time with a
-    MockSentenceTransformer whose encode() accepts only single strings.  Directly
-    setting _model on the instance bypasses _ensure_model entirely, so the real
-    all-MiniLM-L6-v2 model is always used here regardless of import order.
+    mock model.  Directly setting _model on the instance bypasses _ensure_model
+    entirely, so the real all-MiniLM-L6-v2 model is always used here regardless of
+    import order.  The model files come from SYNAPTRA_TEST_MODEL_DIR if set, else the
+    normal model directory; the test is skipped when they are not there and cannot
+    be downloaded.
     """
-    from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+    import os  # noqa: PLC0415
 
+    from fastembed import TextEmbedding  # noqa: PLC0415
+
+    from synaptra.embeddings import PROVIDERS, model_dir  # noqa: PLC0415
+
+    cache = os.environ.get("SYNAPTRA_TEST_MODEL_DIR") or str(model_dir())
     svc = EmbeddingService()
-    svc._model = SentenceTransformer(EmbeddingService.MODEL_NAME)
+    try:
+        svc._model = TextEmbedding(
+            EmbeddingService.MODEL_NAME, cache_dir=cache, providers=PROVIDERS
+        )
+    except Exception as exc:  # noqa: BLE001 - no model files and no network
+        pytest.skip(f"embedding model unavailable: {exc}")
     return svc
 
 

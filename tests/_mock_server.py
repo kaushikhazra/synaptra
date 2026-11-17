@@ -28,10 +28,10 @@ import synaptra.embeddings as emb_module
 class _MockModel:
     """Deterministic mock that produces normalized 384-d vectors from text hash."""
 
-    def encode(self, text, **kwargs):
-        if isinstance(text, list):
-            return np.vstack([self._single(t) for t in text])
-        return self._single(text)
+    def embed(self, texts, **kwargs):
+        """The fastembed model's interface: one vector per text."""
+        for text in texts:
+            yield self._single(text)
 
     def _single(self, text: str) -> np.ndarray:
         np.random.seed(hash(text) % (2**32))
