@@ -45,7 +45,7 @@ Upstream and this repo are **deliberately** different in the following places. A
 | env prefix | `COGNITIVE_MEMORY_*` | `SYNAPTRA_*` |
 | data dir | `~/.cognitive-memory/` | `~/.synaptra/` |
 
-**The full env surface here:** `SYNAPTRA_BACKEND` (default `surrealkv-file`) · `SYNAPTRA_DB` (default `~/.synaptra/data`) · `SYNAPTRA_CONFIG` · `SYNAPTRA_URL` · `SYNAPTRA_HOST` (`127.0.0.1`) · `SYNAPTRA_PORT` (`8050`) · `SYNAPTRA_SURREAL_URL` · `SYNAPTRA_SURREAL_DATA_DIR`.
+**The full env surface here:** `SYNAPTRA_BACKEND` (default `surrealkv-file`) · `SYNAPTRA_DB` (default `~/.synaptra/data`) · `SYNAPTRA_CONFIG` · `SYNAPTRA_URL` · `SYNAPTRA_HOST` (`127.0.0.1`) · `SYNAPTRA_PORT` (`8050`) · `SYNAPTRA_SURREAL_URL` · `SYNAPTRA_SURREAL_DATA_DIR` · `SYNAPTRA_WARMUP_WAIT_S` (60) · `SYNAPTRA_MODEL_DIR` (`~/.synaptra/models`).
 
 ⚠ After any port, grep for `cognitive_memory`, `cognitive-memory` and `COGNITIVE_MEMORY_` across `src/`, `pyproject.toml` and `README.md`. A clean-looking port that leaves one of these behind ships a broken package.
 
@@ -59,7 +59,7 @@ server.py         MCP entrypoint — MCPServer, Streamable HTTP at /mcp, statele
     storage.py                  storage protocol + SQLite backend
     surreal_storage.py          SurrealDB embedded
     surreal_server_storage.py   SurrealDB server backend
-    embeddings.py   numpy matrix + lazy sentence-transformers (all-MiniLM-L6-v2, 384d)
+    embeddings.py   numpy matrix + fastembed (ONNX, CPU; all-MiniLM-L6-v2, 384d); states cold/warming/ready/failed
     retrieval.py    semantic + keyword + temporal RRF fusion → graph traversal
                     → decay reranking → spreading activation
     decay.py        FSRS-inspired: R(t) = e^(-t / 9S). Pure functions.
@@ -85,7 +85,7 @@ server.py         MCP entrypoint — MCPServer, Streamable HTTP at /mcp, statele
 - **Config:** dot-notation (`decay.growth_factor`, `retrieval.weights.semantic`). Defaults in `config.default.yaml`.
 - **Decay is computed on the fly**, not stored, except during consolidation sweeps.
 - **Auto-created `relates_to` links carry `strength < 1.0`** (cosine similarity); manual links are `1.0`. `delete_auto_links` depends on that invariant.
-- **The embedding model is lazy-loaded** on first `embed()`; cold start takes seconds. The HTTP server warms it at startup deliberately — do not remove that.
+- **The embedding model loads in a background thread, after the server is ready to answer** (HTTP: after the port is bound; stdio: right before `mcp.run`). Embedding tools wait for it, bounded by `SYNAPTRA_WARMUP_WAIT_S` (default 60), then say "warming up"; every other tool answers at once; `memory_health` reports `embedding: {state, elapsed_s, cause?}`. Do not move the warm-up back in front of the bind. The model files live in `SYNAPTRA_MODEL_DIR`, else `~/.synaptra/models` — never fastembed's own default, which is the system temp dir.
 
 ## ⛔ Rules that have already cost something
 

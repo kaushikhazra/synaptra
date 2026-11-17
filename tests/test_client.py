@@ -15,19 +15,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import numpy as np
 
-# Mock the sentence-transformers import before importing our modules
-class MockSentenceTransformer:
-    def encode(self, text, **kwargs):
-        # Deterministic embeddings based on text hash
-        np.random.seed(hash(text) % (2**32))
-        vec = np.random.randn(384).astype(np.float32)
-        vec = vec / np.linalg.norm(vec)
-        return vec
+# Mock the embedding model before importing our modules
+class MockEmbeddingModel:
+    """The fastembed model's interface: embed(list of texts) yields one vector per text."""
+
+    def embed(self, texts, **kwargs):
+        for text in texts:
+            # Deterministic embeddings based on text hash
+            np.random.seed(hash(text) % (2**32))
+            vec = np.random.randn(384).astype(np.float32)
+            yield vec / np.linalg.norm(vec)
 
 # Patch
 import synaptra.embeddings as emb_module
 _original_ensure = emb_module.EmbeddingService._ensure_model
-emb_module.EmbeddingService._ensure_model = lambda self: setattr(self, '_model', MockSentenceTransformer()) if self._model is None else None
+emb_module.EmbeddingService._ensure_model = lambda self: setattr(self, '_model', MockEmbeddingModel()) if self._model is None else None
 
 from synaptra.engine import MemoryEngine
 from synaptra.models import MemoryState, MemoryType

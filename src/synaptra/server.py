@@ -659,6 +659,10 @@ async def memory_health() -> str:
 
         report["most_recent_backup_age_days"] = backup_age_days
         report["backup_is_stale"] = backup_is_stale
+        # Whether embedding tools can answer yet: state is warming, ready or failed (cold
+        # only for a process that never began warm-up), plus seconds spent loading and,
+        # when it failed, the cause. Everything else here works while it is warming.
+        report["embedding"] = engine.embeddings.status()
 
         return _response(report, (time.time() - start) * 1000)
     except Exception as e:
@@ -721,15 +725,13 @@ def main() -> None:
 
     if args.transport == "stdio":
         # stdio mode: MCPServer speaks MCP protocol over stdin/stdout.
-        # Warm EVERYTHING at process start — identical to the HTTP branch below —
-        # so the first recall does zero initialization on the request path.
-        # Critical for stdio: the embedding model load is a synchronous, multi-
-        # second CPU call; if it fired lazily during the first recall it would
-        # run on anyio's event-loop thread and block the loop, hanging the call.
-        # _get_engine() builds storage (eager surrealkv-file DB connect) + config;
-        # embeddings.warmup() loads the model. After this, recall is query-only.
+        # _get_engine() builds storage (eager surrealkv-file DB connect) + config.
+        # The embedding model loads in a thread, started here, so the client's
+        # connect never waits on it (issue #13). Embedding calls await it with a
+        # bounded, non-blocking poll, so the event loop is never held; a call that
+        # outlasts the bound gets a "warming up" error, not a hang.
         _engine_instance = _get_engine()
-        _engine_instance.embeddings.warmup()
+        _engine_instance.embeddings.start_warmup()
         mcp.run(transport="stdio")
         return
 
@@ -749,10 +751,23 @@ def main() -> None:
 
     # Pre-initialize the engine so startup errors are caught early
     _engine_instance = _get_engine()
-    # Eagerly load the embedding model — moves ~10 s cold-start out of first recall
-    _engine_instance.embeddings.warmup()
 
-    uvicorn.run(
+    class _WarmAfterBind(uvicorn.Server):
+        """Start loading the embedding model only once the port is bound.
+
+        Importing the model takes minutes on a cold start (issue #13; upstream
+        measured 151 s on 17 Nov). Blocking on it before binding left the task "Running" with
+        nothing listening, and a client that connected in that window stayed failed
+        until a manual reconnect. Loaded in a thread after the bind, its imports
+        cannot delay the bind either. Embedding tools wait for it, bounded, and say
+        "warming up" if it is still loading; every other tool answers at once.
+        """
+
+        async def startup(self, sockets=None):
+            await super().startup(sockets=sockets)
+            _engine_instance.embeddings.start_warmup()
+
+    config = uvicorn.Config(
         get_app(),
         host=host,
         port=port,
@@ -778,6 +793,7 @@ def main() -> None:
             },
         },
     )
+    _WarmAfterBind(config).run()
 
 
 if __name__ == "__main__":

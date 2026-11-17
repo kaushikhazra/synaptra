@@ -23,7 +23,7 @@ Requires Python 3.11+.
 pip install synaptra
 ```
 
-This installs the MCP server, CLI tool, and all dependencies including `sentence-transformers` (all-MiniLM-L6-v2, 384d) and `SurrealDB` (embedded).
+This installs the MCP server, CLI tool, and all dependencies including `fastembed` (ONNX, CPU; all-MiniLM-L6-v2, 384d; the model, about 90 MB, downloads on first start into `~/.synaptra/models`, or `SYNAPTRA_MODEL_DIR`) and `SurrealDB` (embedded).
 
 ## Quick Start
 
