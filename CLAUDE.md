@@ -4,7 +4,7 @@
 
 Biologically-inspired agent memory, exposed as an MCP server over Streamable HTTP. Decay-aware storage with multi-strategy retrieval, automatic linking, contradiction detection, consolidation and version history.
 
-**This is a published PyPI package.** `pip install synaptra`, currently 2.0.0, MIT. People outside this machine have it installed. Every change here is a public change.
+**This is a published PyPI package.** `pip install synaptra`, currently 3.1.0, MIT. People outside this machine have it installed. Every change here is a public change.
 
 ---
 
